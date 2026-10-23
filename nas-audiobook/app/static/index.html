@@ -1,0 +1,1163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ebook to audiobook</title>
+<style>
+  :root { color-scheme: light dark; --bg:#f6f6f8; --fg:#1c1c1e; --muted:#6e6e73; --card:#fff; --line:#d8d8dc; --accent:#0a6cff; --ok:#1a8f3c; --err:#d33; --warn:#b26a00; --soft:#eef3ff; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111113; --fg:#f2f2f4; --muted:#9a9aa1; --card:#1b1b1e; --line:#2e2e33; --accent:#4d9bff; --ok:#4cc46b; --err:#ff6b6b; --warn:#f0a63a; --soft:#1a2740; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.45 system-ui, sans-serif; }
+  main { max-width:880px; margin:0 auto; padding:20px 16px 96px; }
+  h1 { font-size:20px; }
+  h2 { font-size:15px; margin:0 0 10px; display:flex; align-items:center; gap:8px; }
+  h2 .n { display:inline-grid; place-items:center; width:22px; height:22px; border-radius:50%; background:var(--accent); color:#fff; font-size:12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:12px; }
+  .hidden { display:none !important; }
+  label { display:block; font-size:13px; color:var(--muted); margin:10px 0 4px; }
+  input, select, button, textarea { font:inherit; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--fg); }
+  input[type=file], input[type=text], input[type=number], select, textarea { width:100%; }
+  textarea { resize:vertical; min-height:56px; }
+  input[type=checkbox] { width:18px; height:18px; padding:0; accent-color:var(--accent); }
+  button { cursor:pointer; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button.danger { color:var(--err); }
+  button.small { padding:4px 9px; font-size:13px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; } .row > div { flex:1 1 180px; }
+  .inline { display:flex; gap:8px; align-items:center; } .inline select { flex:1; }
+  .muted { color:var(--muted); font-size:13px; } .err { color:var(--err); font-size:13px; } .ok { color:var(--ok); font-size:13px; }
+  .note { background:var(--soft); border-radius:8px; padding:8px 10px; font-size:13px; margin-top:10px; }
+  .note.warn { border-left:3px solid var(--warn); }
+  .summary { display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; align-items:center; margin:12px 0 6px; font-size:14px; }
+  .tools button { margin-left:6px; }
+  .chapters { border:1px solid var(--line); border-radius:10px; overflow:hidden; max-height:520px; overflow-y:auto; }
+  .ch { display:grid; grid-template-columns:24px 1fr auto; gap:10px; padding:9px 10px; border-bottom:1px solid var(--line); align-items:start; }
+  .ch:last-child { border-bottom:0; } .ch.off .t { color:var(--muted); }
+  .ch .t { font-weight:600; overflow-wrap:anywhere; } .ch .m { color:var(--muted); font-size:12.5px; }
+  .ch .snip { grid-column:2 / 4; font-size:12.5px; color:var(--muted); background:var(--bg); border-radius:6px; padding:6px 8px; display:none; overflow-wrap:anywhere; }
+  .ch.open .snip { display:block; }
+  .badge { font-size:11px; border:1px solid var(--line); border-radius:999px; padding:0 6px; margin-left:6px; color:var(--muted); font-weight:400; white-space:nowrap; }
+  .badge.has { color:var(--ok); border-color:var(--ok); } .badge.other { color:var(--warn); border-color:var(--warn); }
+  .gallery { display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:8px; margin-top:10px; }
+  .voice { border:1px solid var(--line); border-radius:10px; padding:8px 10px; display:flex; flex-direction:column; gap:6px; }
+  .voice.sel { border-color:var(--accent); background:var(--soft); }
+  .voice .v { font-weight:600; overflow-wrap:anywhere; } .voice .d { font-size:12.5px; color:var(--muted); }
+  .voice .btns { display:flex; gap:6px; flex-wrap:wrap; }
+  details > summary { cursor:pointer; font-weight:600; }
+  .bar { height:6px; background:var(--line); border-radius:3px; overflow:hidden; margin:8px 0 4px; } .bar i { display:block; height:100%; background:var(--accent); }
+  .job .top { display:flex; justify-content:space-between; gap:8px; } .job .top b { overflow-wrap:anywhere; }
+  .job + .job { border-top:1px solid var(--line); margin-top:10px; padding-top:10px; }
+  .confirm { position:fixed; left:0; right:0; bottom:0; background:var(--card); border-top:1px solid var(--line); padding:10px 16px; }
+  .confirm .in { max-width:880px; margin:0 auto; display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+  .toast { position:fixed; left:50%; transform:translateX(-50%); bottom:76px; background:var(--fg); color:var(--bg); padding:8px 14px; border-radius:999px; font-size:14px; z-index:5; }
+  .top-bar { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
+  .top-bar h1 { margin:0; }
+  .tabs { display:flex; gap:4px; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:3px; }
+  .tabs button { border:0; background:transparent; padding:6px 14px; border-radius:8px; font-weight:600; color:var(--muted); }
+  .tabs button.on { background:var(--accent); color:#fff; }
+  .count { display:inline-block; min-width:18px; padding:0 5px; border-radius:999px; background:var(--err); color:#fff; font-size:11px; text-align:center; margin-left:4px; }
+  .media audio, .group audio { width:100%; margin-top:8px; }
+  .chs { display:flex; flex-direction:column; gap:4px; margin-top:8px; max-height:300px; overflow-y:auto; }
+  .chs .tr { display:flex; gap:6px; align-items:center; }
+  .chs .tr > button.play { flex:1; text-align:left; display:flex; justify-content:space-between; gap:10px; }
+  .chs .tr.now > button.play { border-color:var(--accent); background:var(--soft); }
+  .media a, .group a { font-size:13px; color:var(--accent); }
+  .book { display:grid; grid-template-columns:64px 1fr auto; gap:12px; align-items:start; }
+  .cover { width:64px; height:88px; border-radius:6px; object-fit:cover; background:var(--line); display:grid; place-items:center; color:var(--muted); font-size:22px; }
+  .book .t { font-weight:600; overflow-wrap:anywhere; }
+  .chip { display:inline-block; font-size:12px; border:1px solid var(--line); border-radius:999px; padding:0 8px; margin:4px 4px 0 0; color:var(--muted); }
+  .md5 { font:12px ui-monospace, monospace; color:var(--muted); }
+  .detail { margin-top:12px; border-top:1px solid var(--line); padding-top:10px; }
+  .group { border:1px solid var(--line); border-radius:10px; padding:10px; margin-top:10px; }
+  .group .gh { display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; align-items:center; }
+  .opt { display:flex; gap:10px; align-items:flex-start; margin:12px 0 0; color:var(--fg); font-size:15px; cursor:pointer; }
+  .opt input { margin-top:3px; }
+  .actions-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
+  pre.cmd { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px; overflow-x:auto; font:12.5px/1.5 ui-monospace, monospace; margin:8px 0; }
+  dialog { border:1px solid var(--line); border-radius:14px; background:var(--card); color:var(--fg); max-width:560px; width:calc(100% - 32px); padding:18px; }
+  dialog::backdrop { background:rgba(0,0,0,.5); }
+  dialog h3 { margin:0 0 8px; font-size:17px; }
+  dialog ul { margin:6px 0; padding-left:20px; } dialog li { margin:2px 0; font-size:13.5px; }
+  dialog .actions { display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; margin-top:16px; }
+  .mrow { border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-top:10px; }
+  .mrow .row { margin-top:-6px; } .mrow .row > .use { flex:0 0 auto; } .mrow .actions-row { margin-top:8px; }
+  .mstat { font-size:13px; margin-top:6px; color:var(--muted); } .mstat.bad { color:var(--err); } .mstat.good { color:var(--ok); }
+  .mmodels { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px; margin-top:10px; }
+  .mmodel { display:flex; flex-direction:column; align-items:flex-start; gap:2px; border:1px solid var(--line); border-radius:8px; padding:8px 10px; min-width:0; }
+  .mmodel .mname { font-weight:600; font-size:13.5px; overflow-wrap:anywhere; }
+  .mmodel .mstate { font-size:12.5px; color:var(--muted); overflow-wrap:anywhere; }
+  .mmodel button { margin-top:6px; }
+  .mmodel.ready { border-color:var(--ok); } .mmodel.ready .mstate { color:var(--ok); }
+  .mmodel.error { border-color:var(--err); } .mmodel.error .mstate { color:var(--err); }
+  .mmodel.busy { border-color:var(--accent); } .mmodel.busy .mstate { color:var(--accent); }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; background:var(--muted); margin:0 6px 0 4px; }
+  .dot.on { background:var(--ok); } .dot.off { background:var(--err); }
+  .run { display:flex; gap:10px; align-items:flex-start; margin:8px 0; cursor:pointer; } .run input { margin-top:3px; }
+  .run.dis { opacity:.6; cursor:not-allowed; }
+  .wk { font-size:13px; margin-top:6px; display:flex; flex-direction:column; gap:2px; } .wk .bad { color:var(--err); }
+  #upCover { width:auto; max-width:100%; height:150px; margin-top:8px; }
+  .cal-row { display:flex; gap:8px; align-items:center; justify-content:space-between; width:100%; text-align:left; margin-top:8px; padding:10px 12px; }
+  .cal-row .muted { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .fmt-btns { display:flex; flex-direction:column; gap:6px; }
+  dl.facts { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin:8px 0; font-size:14px; } dl.facts dt { color:var(--muted); } dl.facts dd { margin:0; overflow-wrap:anywhere; }
+</style>
+</head>
+<body>
+<main>
+  <div class="top-bar">
+    <h1>Ebook to audiobook</h1>
+    <nav class="tabs" aria-label="Sections">
+      <button type="button" data-tab="convert" class="on">Convert</button>
+      <button type="button" data-tab="calibre">Calibre</button>
+      <button type="button" data-tab="library">Library</button>
+      <button type="button" data-tab="jobs">Jobs<span id="jobBadge" class="count hidden"></span></button>
+      <button type="button" data-tab="settings">Settings</button>
+    </nav>
+  </div>
+
+  <div id="view-convert">
+  <section class="card" id="s1">
+    <h2><span class="n">1</span> Upload a book</h2>
+    <input id="file" type="file">
+    <div id="umsg" class="muted">EPUB, PDF, MOBI, AZW3, FB2, DOCX, RTF, TXT or Markdown.</div>
+    <img id="upCover" class="cover hidden" alt="Book cover">
+    <div id="inLibrary" class="note warn hidden"></div>
+  </section>
+
+  <section class="card hidden" id="s2">
+    <h2><span class="n">2</span> Split into chapters</h2>
+    <div class="row">
+      <div>
+        <label for="processor">Book processor</label>
+        <select id="processor"></select>
+      </div>
+    </div>
+    <div id="pdesc" class="muted" style="margin-top:6px"></div>
+    <div id="pparams" class="row"></div>
+    <div id="pnote" class="note hidden"></div>
+    <div id="perr" class="err" style="margin-top:8px"></div>
+    <div class="row">
+      <div><label for="btitle">Book title</label><input id="btitle" type="text"></div>
+      <div><label for="bauthor">Author</label><input id="bauthor" type="text"></div>
+    </div>
+    <div class="summary">
+      <span id="summary" class="muted">Reading the book…</span>
+      <span class="tools">
+        <button class="small" id="selAll" type="button">All</button>
+        <button class="small" id="selNone" type="button">None</button>
+        <button class="small" id="selInvert" type="button">Invert</button>
+        <button class="small" id="selDefault" type="button" title="Select the chapters the processor recommends">Recommended</button>
+        <button class="small hidden" id="selMissing" type="button" title="Select only chapters that have no audio in the chosen voice">Without audio</button>
+      </span>
+    </div>
+    <div id="audioNote" class="muted hidden"></div>
+    <div id="chapters" class="chapters hidden"></div>
+  </section>
+
+  <section class="card hidden" id="s3">
+    <h2><span class="n">3</span> Choose a voice</h2>
+    <div class="row">
+      <div><label for="model">Model</label>
+        <select id="model"><option value="english">English (Supertonic: clear, fast)</option><option value="nano">Vietnamese · Nano (fast)</option><option value="turbo">Vietnamese · Turbo (best quality, slower)</option></select></div>
+      <div id="tempBox"><label for="temperature">Expressiveness</label><input id="temperature" type="number" step="0.05" min="0.1" max="1.5"></div>
+    </div>
+    <div class="row">
+      <div><label for="voice">Narrator</label><div class="inline"><select id="voice"></select><button class="small" id="playNarrator" type="button" aria-label="Hear the narrator voice">▶ Hear</button></div></div>
+      <div><label for="dialog_voice">Dialogue (quoted speech)</label><div class="inline"><select id="dialog_voice"></select><button class="small" id="playDialog" type="button" aria-label="Hear the dialogue voice">▶ Hear</button></div></div>
+    </div>
+    <label style="display:flex;gap:8px;align-items:center;margin-top:12px"><input id="read_titles" type="checkbox" checked> Read each chapter title aloud</label>
+    <div id="vmsg" class="muted"></div>
+    <div id="langNote" class="note hidden"></div>
+    <div id="runOn" class="hidden" style="margin-top:14px">
+      <label style="margin:0 0 4px">Run on <button type="button" class="small" id="runOnRefresh" style="margin-left:6px">Refresh</button></label>
+      <div class="muted">Chapters are shared out: each machine takes the next chapter as soon as it is free, so faster ones do more.
+        A machine that does not have the chosen model or voice gets it first.</div>
+      <div id="runOnList"></div>
+    </div>
+    <div id="engineLine" class="muted" style="margin-top:8px"></div>
+    <details open style="margin-top:12px">
+      <summary>Voice gallery: listen, then pick</summary>
+      <label for="sampleText">Sample text (optional, up to 300 characters)</label>
+      <textarea id="sampleText" maxlength="300" placeholder="Leave empty to use the standard sample sentence."></textarea>
+      <div id="gallery" class="gallery"></div>
+    </details>
+  </section>
+
+  <section class="card">
+    <details>
+      <summary>Clone a voice</summary>
+      <form id="cf">
+        <div class="muted" style="margin-top:6px">A clean 3 to 15 second clip of one speaker. Only clone voices you have the right to use.</div>
+        <div class="row">
+          <div><label for="cname">Name</label><input id="cname" name="name" type="text" required></div>
+          <div><label for="cfile">Audio</label><input id="cfile" name="file" type="file" accept="audio/*" required></div>
+        </div>
+        <button class="primary" type="submit" style="margin-top:12px">Add voice</button>
+        <div id="cmsg" class="muted"></div>
+      </form>
+    </details>
+  </section>
+  </div>
+
+  <div id="view-calibre" class="hidden">
+    <section class="card">
+      <h2>Calibre-Web</h2>
+      <div class="muted">Pick a book from your Calibre-Web library and it goes straight into Convert, no download and upload by hand.</div>
+      <div id="calOff" class="note warn hidden">Calibre-Web is not connected. <a href="#settings">Connect it in Settings.</a></div>
+      <form id="calSearch" class="inline hidden" style="margin-top:10px">
+        <input id="calQ" type="text" placeholder="Search title, author, series…" autocomplete="off">
+        <button type="submit" class="primary">Search</button>
+      </form>
+      <div id="calCrumbs" class="muted" style="margin-top:8px"></div>
+      <div id="calErr" class="err"></div>
+    </section>
+    <div id="calList"></div>
+    <div style="text-align:center;margin-top:8px"><button type="button" id="calMore" class="hidden">Load more</button></div>
+  </div>
+
+  <div id="view-library" class="hidden">
+    <section class="card">
+      <h2>Library</h2>
+      <div class="muted">Every book you have converted, with all of its audio. Each book is a folder named by the MD5 of the book file.</div>
+      <div id="libEmpty" class="muted hidden" style="margin-top:10px">Nothing here yet. Convert a book and its audio will appear here.</div>
+    </section>
+    <div id="library"></div>
+  </div>
+
+  <div id="view-settings" class="hidden">
+    <section class="card">
+      <h2>Voice machines</h2>
+      <div class="muted">The machines that make the speech: this server and any number of voice workers. In Convert you choose which of them share a book. The library, the files and this page always stay on this server.</div>
+      <div id="machines"></div>
+      <div class="actions-row">
+        <button type="button" id="addWorker">Add a voice worker</button>
+        <button type="button" id="engSave" class="primary">Save</button>
+      </div>
+      <div id="engMsg" class="muted" style="margin-top:8px"></div>
+    </section>
+    <section class="card">
+      <h2>Calibre-Web</h2>
+      <div class="muted">Your Calibre-Web server, to browse and convert its books from the Calibre tab. It uses the OPDS catalogue, which must be switched on in Calibre-Web (Admin → Edit Basic Configuration → Feature Configuration → Enable OPDS). The password is kept on this server, in <span class="md5">data/config/calibre.json</span> (mode 600), and never sent back to this page.</div>
+      <div class="row">
+        <div><label for="calUrl">Address</label><input id="calUrl" type="text" placeholder="http://192.168.1.10:8083" autocomplete="off"></div>
+        <div><label for="calUser">Username</label><input id="calUser" type="text" autocomplete="off"></div>
+        <div><label for="calPass">Password</label><input id="calPass" type="password" autocomplete="new-password" placeholder="none"></div>
+      </div>
+      <div class="actions-row">
+        <button type="button" id="calTest">Test</button>
+        <button type="button" id="calSave" class="primary">Save</button>
+        <button type="button" id="calOffBtn" class="danger hidden">Disconnect</button>
+      </div>
+      <div id="calMsg" class="muted" style="margin-top:8px"></div>
+    </section>
+    <section class="card">
+      <details>
+        <summary>How to start a worker</summary>
+        <div class="muted" style="margin-top:8px">On each machine that will help (Python 3.12 and ffmpeg installed), in this project's folder:</div>
+        <pre class="cmd">pip install -r requirements.txt -r requirements-engine.txt
+WORKER_NAME="Laptop" WORKER_TOKEN=choose-a-secret python -m app.worker</pre>
+        <div class="muted">It listens on port 8780. Add it above with its address and token, press Test, then Save. Add as many as you like. A phone works only if the models can run there; anything that speaks the worker protocol described in the README can be used. A machine that has not downloaded or loaded the chosen model yet does that when a conversion starts, and the Jobs tab shows it doing so.</div>
+      </details>
+    </section>
+  </div>
+
+  <div id="view-jobs" class="hidden">
+    <section class="card">
+      <h2>Jobs</h2>
+      <div id="jobsEmpty" class="muted">Nothing yet. Convert a book and it will show up here.</div>
+      <div id="jobs"></div>
+    </section>
+  </div>
+</main>
+
+<div class="confirm hidden" id="confirm">
+  <div class="in">
+    <span id="confirmInfo" class="muted"></span>
+    <span>
+      <button type="button" id="startOver">Start over</button>
+      <button type="button" class="primary" id="convert">Convert</button>
+    </span>
+  </div>
+</div>
+
+<dialog id="dlg" aria-labelledby="dlgTitle">
+  <h3 id="dlgTitle">Convert this book?</h3>
+  <dl class="facts" id="dlgFacts"></dl>
+  <div id="dlgWarn"></div>
+  <div class="actions" id="dlgActions"></div>
+</dialog>
+
+<dialog id="dlgEdit" aria-labelledby="editHead">
+  <h3 id="editHead">Rename book</h3>
+  <form id="editForm">
+    <label for="editTitle">Title</label><input id="editTitle" type="text" required>
+    <label for="editAuthor">Author</label><input id="editAuthor" type="text">
+    <div class="muted" style="margin-top:8px">This also updates the tags inside every chapter file. The folder keeps its MD5 name, so nothing else changes.</div>
+    <div class="actions"><button type="button" id="editCancel">Cancel</button><button type="submit" class="primary">Save</button></div>
+  </form>
+</dialog>
+
+<div class="toast hidden" id="toast"></div>
+<audio id="player"></audio>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const state = { defaults: null, upload: null, info: null, preview: null, selected: new Set(), previewSeq: 0, voices: [], voiceTimer: null, previewTimer: null, openBooks: new Set() };
+
+function fmtDuration(sec) {
+  if (sec < 90) return `${sec} s`;
+  const m = Math.round(sec / 60);
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min`;
+}
+const fmtClock = (sec) => { sec = Math.round(sec); const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), x = sec % 60;
+  return (h ? `${h}:${String(m).padStart(2, "0")}` : `${m}`) + `:${String(x).padStart(2, "0")}`; };
+const fmtMB = (bytes) => `${(bytes / 1048576).toFixed(1)} MB`;
+function toast(text) { const t = $("toast"); t.textContent = text; t.classList.remove("hidden"); setTimeout(() => t.classList.add("hidden"), 3500); }
+async function errText(r) {
+  try { const d = (await r.json()).detail; return typeof d === "string" ? d : (d && d.message) || r.statusText; } catch (e) { return r.statusText; }
+}
+const audioUrl = (md5, file) => `/api/library/${md5}/audio/${encodeURIComponent(file)}`;
+
+/* ---------- tabs ---------- */
+const currentTab = () => ({ "#calibre": "calibre", "#library": "library", "#jobs": "jobs", "#settings": "settings" }[location.hash] || "convert");
+function syncConfirm() { $("confirm").classList.toggle("hidden", !(state.upload && currentTab() === "convert")); }
+function route() {
+  const tab = currentTab();
+  ["convert", "calibre", "library", "jobs", "settings"].forEach((t) => $(`view-${t}`).classList.toggle("hidden", t !== tab));
+  document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
+  syncConfirm();
+  if (tab === "library") refreshLibrary();
+  if (tab === "settings") { loadEngine(); loadCalibreSettings(); }
+  if (tab === "calibre") calInit();
+}
+document.querySelector(".tabs").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-tab]"); if (b) location.hash = "#" + b.dataset.tab;
+});
+window.addEventListener("hashchange", route);
+
+/* ---------- step 1: upload ---------- */
+$("file").addEventListener("change", async () => {
+  const f = $("file").files[0];
+  if (!f) return;
+  $("umsg").className = "muted"; $("umsg").textContent = "Uploading…"; $("inLibrary").classList.add("hidden");
+  const fd = new FormData(); fd.append("file", f);
+  const r = await fetch("/api/uploads", { method: "POST", body: fd });
+  if (!r.ok) { $("umsg").className = "err"; $("umsg").textContent = await errText(r); return; }
+  await openUpload((await r.json()).id);
+});
+
+/* a stored upload (from this page or from Calibre-Web) becomes step 2 and 3 */
+async function openUpload(id) {
+  state.upload = id; $("inLibrary").classList.add("hidden");
+  const ir = await fetch(`/api/uploads/${state.upload}`);
+  if (!ir.ok) { $("umsg").className = "err"; $("umsg").textContent = await errText(ir); return; }
+  state.info = await ir.json();
+  $("umsg").className = "ok"; $("umsg").textContent = `${state.info.filename} uploaded.`;
+  $("upCover").classList.toggle("hidden", !state.info.has_cover);
+  if (state.info.has_cover) $("upCover").src = `/api/uploads/${state.upload}/cover`;
+  if (state.info.audio_count) {
+    $("inLibrary").innerHTML = `This book is already in your library with ${state.info.audio_count} audio file${state.info.audio_count === 1 ? "" : "s"} (book id <span class="md5">${state.info.md5}</span>). The chapter list below shows which chapters already have audio. <a href="#library" data-open-book="${state.info.md5}">View in library</a>`;
+    $("inLibrary").classList.remove("hidden");
+  }
+  chooseModelForLanguage(state.info.language);
+  setupProcessors(); show(true); runPreview(); loadVoices(); loadMachines();
+}
+
+/* An English book starts on the English model with its own voices; any other book on the default model. */
+function chooseModelForLanguage(language) {
+  const en = state.defaults.english, isEn = (language || "").toLowerCase().startsWith("en");
+  const note = $("langNote");
+  if (!en) { note.classList.add("hidden"); return; }
+  const want = isEn ? en : { model: state.defaults.model, voice: state.defaults.voice, dialog_voice: state.defaults.dialog_voice };
+  if ($("model").value !== want.model) {
+    $("model").value = want.model; $("voice").value = ""; $("dialog_voice").value = "";
+    state.wantVoices = [want.voice || "", want.dialog_voice || ""];
+    syncModelFields();
+  }
+  note.textContent = isEn ? "This book is in English, so it starts on the English model and its voices. You can switch the model below."
+                          : "";
+  note.classList.toggle("hidden", !isEn);
+}
+function syncModelFields() { $("tempBox").classList.toggle("hidden", $("model").value === "english"); }
+$("inLibrary").addEventListener("click", (e) => { const a = e.target.closest("[data-open-book]"); if (a) state.openBooks.add(a.dataset.openBook); });
+
+function show(on) {
+  ["s2", "s3"].forEach((id) => $(id).classList.toggle("hidden", !on));
+  syncConfirm();
+}
+
+/* ---------- step 2: processors and preview ---------- */
+function setupProcessors() {
+  $("processor").innerHTML = state.info.processors.map((p) => `<option value="${esc(p.id)}">${esc(p.label)}</option>`).join("");
+  $("btitle").value = state.info.title || ""; $("bauthor").value = state.info.author || "";
+  renderProcessor();
+}
+const currentProcessor = () => state.info.processors.find((p) => p.id === $("processor").value);
+function renderProcessor() {
+  const p = currentProcessor();
+  $("pdesc").textContent = p.description;
+  $("pparams").innerHTML = p.params.map((s) => {
+    const id = `pp_${s.name}`;
+    const input = s.kind === "choice"
+      ? `<select id="${id}">${s.choices.map((c) => `<option ${c === s.default ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>`
+      : `<input id="${id}" type="${s.kind === "number" ? "number" : "text"}" value="${esc(s.default)}" ${s.kind === "number" ? 'min="1"' : ""}>`;
+    return `<div><label for="${id}">${esc(s.label)}</label>${input}${s.help ? `<div class="muted">${esc(s.help)}</div>` : ""}</div>`;
+  }).join("");
+  p.params.forEach((s) => $(`pp_${s.name}`).addEventListener("input", schedulePreview));
+}
+const currentParams = () => Object.fromEntries(currentProcessor().params.map((s) => [s.name, $(`pp_${s.name}`).value]));
+$("processor").addEventListener("change", () => { renderProcessor(); runPreview(); });
+function schedulePreview() { clearTimeout(state.previewTimer); state.previewTimer = setTimeout(runPreview, 500); }
+
+async function runPreview() {
+  const seq = ++state.previewSeq;
+  $("summary").textContent = "Reading the book…"; $("perr").textContent = ""; $("pnote").classList.add("hidden");
+  $("chapters").classList.add("hidden"); $("audioNote").classList.add("hidden"); $("selMissing").classList.add("hidden");
+  const r = await fetch(`/api/uploads/${state.upload}/preview`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ processor: $("processor").value, params: currentParams() }),
+  });
+  if (seq !== state.previewSeq) return;
+  if (!r.ok) {
+    state.preview = null; state.selected = new Set();
+    $("summary").textContent = "No chapters";
+    $("perr").textContent = await errText(r);
+    updateConfirm(); return;
+  }
+  state.preview = await r.json();
+  state.selected = new Set(state.preview.chapters.filter((c) => c.selected).map((c) => c.index));
+  if (state.preview.note) { $("pnote").textContent = state.preview.note; $("pnote").classList.remove("hidden"); }
+  renderChapters();
+}
+
+/* what the current voice settings would produce, to compare with audio that already exists */
+function voiceSpec() {
+  return { model: $("model").value, voice: $("voice").value || null, dialog_voice: $("dialog_voice").value || null,
+           temperature: Number($("temperature").value) || state.defaults.temperature, read_titles: $("read_titles").checked };
+}
+const sameVoice = (a, v) => a.model === v.model && (a.voice || null) === v.voice && (a.dialog_voice || null) === v.dialog_voice
+  && Math.abs(a.temperature - v.temperature) < 1e-9 && a.read_titles === v.read_titles;
+function audioStatus(c, v) {
+  const mine = c.audio.filter((a) => sameVoice(a, v));
+  return { mine, others: c.audio.filter((a) => !sameVoice(a, v)) };
+}
+
+function renderChapters() {
+  const chapters = state.preview.chapters, v = voiceSpec();
+  const box = $("chapters");
+  box.classList.toggle("hidden", chapters.length === 0);
+  let withMine = 0, withOther = 0;
+  box.innerHTML = chapters.map((c) => {
+    const short = c.chars < state.defaults.min_chapter_chars;
+    const { mine, others } = audioStatus(c, v);
+    if (mine.length) withMine++; else if (others.length) withOther++;
+    const badge = mine.length ? `<span class="badge has" title="Audio already exists in this voice">✓ has audio</span>`
+      : others.length ? `<span class="badge other" title="${esc(others.map((a) => a.voice_label).join(", "))}">audio in another voice</span>` : "";
+    return `<div class="ch ${state.selected.has(c.index) ? "" : "off"}" data-i="${c.index}">
+      <input type="checkbox" aria-label="Convert chapter ${c.index + 1}" ${state.selected.has(c.index) ? "checked" : ""}>
+      <div><div class="t">${c.index + 1}. ${esc(c.title || "(untitled)")}${short ? '<span class="badge">short</span>' : ""}${badge}</div>
+        <div class="m">${c.chars.toLocaleString()} characters · about ${fmtDuration(c.seconds)}</div></div>
+      <button type="button" class="small" data-toggle aria-label="Show the start and end of this chapter">Peek</button>
+      <div class="snip"><b>Starts:</b> ${esc(c.head) || "(empty)"}${c.tail ? `<br><b>Ends:</b> …${esc(c.tail)}` : ""}</div>
+    </div>`;
+  }).join("");
+  const any = chapters.some((c) => c.audio.length);
+  $("audioNote").classList.toggle("hidden", !any);
+  $("selMissing").classList.toggle("hidden", !any);
+  if (any) $("audioNote").textContent = `${withMine} chapter${withMine === 1 ? "" : "s"} already ${withMine === 1 ? "has" : "have"} audio in the voice chosen below` + (withOther ? `, ${withOther} more only in another voice.` : ".");
+  updateConfirm();
+}
+$("chapters").addEventListener("click", (e) => {
+  const row = e.target.closest(".ch"); if (!row) return;
+  const i = Number(row.dataset.i);
+  if (e.target.closest("[data-toggle]")) { row.classList.toggle("open"); return; }
+  if (e.target.matches("input[type=checkbox]")) {
+    e.target.checked ? state.selected.add(i) : state.selected.delete(i);
+    row.classList.toggle("off", !e.target.checked); updateConfirm();
+  }
+});
+function setSelection(fn) {
+  if (!state.preview) return;
+  state.selected = new Set(state.preview.chapters.filter(fn).map((c) => c.index)); renderChapters();
+}
+$("selAll").onclick = () => setSelection(() => true);
+$("selNone").onclick = () => setSelection(() => false);
+$("selInvert").onclick = () => setSelection((c) => !state.selected.has(c.index));
+$("selDefault").onclick = () => setSelection((c) => c.selected);
+$("selMissing").onclick = () => { const v = voiceSpec(); setSelection((c) => c.selected && !audioStatus(c, v).mine.length); };
+
+function selectedSeconds() {
+  return state.preview ? state.preview.chapters.filter((c) => state.selected.has(c.index)).reduce((a, c) => a + c.seconds, 0) : 0;
+}
+function updateConfirm() {
+  const n = state.selected.size, total = state.preview ? state.preview.chapters.length : 0;
+  if (state.preview) $("summary").textContent = `${total} chapters found · ${n} selected · about ${fmtDuration(selectedSeconds())} of audio`;
+  $("confirmInfo").textContent = n ? `${n} chapter${n === 1 ? "" : "s"} · about ${fmtDuration(selectedSeconds())}` : "Select at least one chapter";
+  const noMachine = machineChoice() !== null && machineChoice().length === 0;
+  if (n && noMachine) $("confirmInfo").textContent = "Pick at least one machine to run on";
+  $("convert").disabled = n === 0 || noMachine;
+  $("convert").textContent = n ? `Convert ${n} chapter${n === 1 ? "" : "s"}` : "Convert";
+}
+
+/* ---------- step 3: voices and samples ---------- */
+const sel = { narrator: () => $("voice").value, dialog: () => $("dialog_voice").value };
+async function loadVoices() {
+  clearTimeout(state.voiceTimer);
+  const say = (text, isErr) => { $("vmsg").textContent = text; $("vmsg").className = isErr ? "err" : "muted"; };
+  const fill = (voices) => {
+    state.voices = voices;
+    const opts = voices.map((v) => `<option value="${esc(v.id)}">${esc(v.label)}</option>`).join("");
+    const keep = state.wantVoices && voices.length ? state.wantVoices : [$("voice").value, $("dialog_voice").value];
+    if (voices.length) state.wantVoices = null;
+    $("voice").innerHTML = `<option value="">Default</option>${opts}`;
+    $("dialog_voice").innerHTML = `<option value="">Same as narrator</option>${opts}`;
+    $("voice").value = keep[0]; $("dialog_voice").value = keep[1];
+    renderGallery(); renderRunOn();
+  };
+  try {
+    const r = await fetch("/api/voices?model=" + $("model").value);
+    if (r.status === 503) {
+      const d = (await r.json()).detail || {};
+      fill([]);
+      say(d.loading === false ? "Could not load the model: " + d.message : "First run: downloading and loading the model, which can take several minutes. Voices will appear here by themselves.", d.loading === false);
+      state.voiceTimer = setTimeout(loadVoices, d.loading === false ? 15000 : 3000); return;
+    }
+    if (!r.ok) throw new Error(await errText(r));
+    const d = await r.json();
+    fill(d.voices);
+    if (d.ready) { say("", false); return; }
+    say(d.error ? `The model could not finish loading (${d.error}). Showing the voices saved from last time.`
+                : "Showing the voices saved from last time. The model is still loading, so samples may take a moment. The list updates itself.", !!d.error);
+    state.voiceTimer = setTimeout(loadVoices, d.error ? 15000 : 3000);
+  } catch (e) { fill([]); say("Could not load voices: " + e.message, true); state.voiceTimer = setTimeout(loadVoices, 15000); }
+}
+$("model").addEventListener("change", () => { $("voice").value = ""; $("dialog_voice").value = ""; syncModelFields(); loadVoices(); refreshBadges(); });
+["voice", "dialog_voice", "temperature", "read_titles"].forEach((id) => $(id).addEventListener("change", refreshBadges));
+function refreshBadges() { if (state.preview) renderChapters(); renderRunOn(); updateConfirm(); }
+
+function renderGallery() {
+  $("gallery").innerHTML = state.voices.map((v) => {
+    const [name, ...rest] = v.label.split(" — ");
+    const picked = v.id === sel.narrator() ? "Narrator" : v.id === sel.dialog() ? "Dialogue" : "";
+    return `<div class="voice ${picked ? "sel" : ""}" data-v="${esc(v.id)}">
+      <div class="v">${esc(name)}${picked ? `<span class="badge">${picked}</span>` : ""}</div>
+      <div class="d">${esc(rest.join(" — ")) || (v.cloned ? "Cloned voice" : "")}</div>
+      <div class="btns"><button type="button" class="small" data-act="play">▶ Hear</button>
+        <button type="button" class="small" data-act="narrator">Use as narrator</button>
+        <button type="button" class="small" data-act="dialog">Use for dialogue</button></div></div>`;
+  }).join("") || '<div class="muted">Voices will appear when the model is ready.</div>';
+}
+$("gallery").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-act]"); if (!b) return;
+  const id = b.closest(".voice").dataset.v;
+  if (b.dataset.act === "play") playSample(id, b);
+  else { (b.dataset.act === "narrator" ? $("voice") : $("dialog_voice")).value = id; renderGallery(); refreshBadges(); }
+});
+$("voice").addEventListener("change", renderGallery);
+$("dialog_voice").addEventListener("change", renderGallery);
+$("playNarrator").onclick = (e) => playSample(sel.narrator(), e.currentTarget);
+$("playDialog").onclick = (e) => playSample(sel.dialog() || sel.narrator(), e.currentTarget);
+
+const sampleCache = new Map();
+async function playSample(voice, button) {
+  const player = $("player"), label = button.textContent;
+  const params = new URLSearchParams({ model: $("model").value, temperature: $("temperature").value || "0.8" });
+  if (voice) params.set("voice", voice);
+  if ($("sampleText").value.trim()) params.set("text", $("sampleText").value.trim());
+  const url = `/api/voice-sample?${params}`;
+  button.disabled = true; button.textContent = "…";
+  try {
+    if (!sampleCache.has(url)) {
+      const r = await fetch(url);
+      if (!r.ok) {
+        const d = r.status === 503 ? ((await r.json()).detail || {}) : null;
+        throw new Error(d ? (d.loading ? "The model is still loading, try again in a moment." : d.message) : await errText(r));
+      }
+      sampleCache.set(url, URL.createObjectURL(await r.blob()));
+    }
+    player.src = sampleCache.get(url); await player.play();
+  } catch (e) { toast(e.message || "Could not play the sample"); }
+  finally { button.disabled = false; button.textContent = label; }
+}
+
+/* ---------- confirm modal ---------- */
+function chapterList(items) {
+  const shown = items.slice(0, 8).map((c) => `<li>${c.index + 1}. ${esc(c.title || "(untitled)")}</li>`).join("");
+  return `<ul>${shown}${items.length > 8 ? `<li class="muted">and ${items.length - 8} more</li>` : ""}</ul>`;
+}
+$("convert").addEventListener("click", () => {
+  const v = voiceSpec();
+  const chosen = state.preview.chapters.filter((c) => state.selected.has(c.index));
+  const replace = chosen.filter((c) => audioStatus(c, v).mine.length);
+  const addNew = chosen.filter((c) => !audioStatus(c, v).mine.length && audioStatus(c, v).others.length);
+  const seconds = chosen.reduce((a, c) => a + c.seconds, 0);
+  const shortName = (sel) => (sel.selectedOptions[0]?.textContent || "").split(" — ")[0];
+  const narrator = $("voice").value ? shortName($("voice")) : "default voice", dialog = $("dialog_voice").value ? shortName($("dialog_voice")) : "";
+  $("dlgFacts").innerHTML = `<dt>Book</dt><dd>${esc($("btitle").value || state.info.title)}</dd>
+    <dt>Chapters</dt><dd>${chosen.length} of ${state.preview.chapters.length}, about ${fmtDuration(seconds)} of audio</dd>
+    <dt>Splitting</dt><dd>${esc(currentProcessor().label)}</dd>
+    <dt>Voice</dt><dd>${esc($("model").value)} · ${esc(narrator)}${dialog ? ` / ${esc(dialog)}` : ""}</dd>
+    ${machineChoice() ? `<dt>Run on</dt><dd>${esc(machineChoice().map((id) => machineById(id)?.name || id).join(", "))}</dd>` : ""}
+    <dt>Saved to</dt><dd class="md5">library/${esc(state.preview.md5)}/</dd>`;
+  let warn = "";
+  if (replace.length) warn += `<div class="note warn"><b>${replace.length} selected chapter${replace.length === 1 ? " already has" : "s already have"} audio in this voice.</b> Converting again replaces ${replace.length === 1 ? "it" : "them"}.${chapterList(replace)}</div>`;
+  if (addNew.length) warn += `<div class="note"><b>${addNew.length} ${addNew.length === 1 ? "has" : "have"} audio in another voice.</b> The new audio is added next to it; nothing is replaced.</div>`;
+  $("dlgWarn").innerHTML = warn;
+  const actions = $("dlgActions"); actions.innerHTML = "";
+  const add = (label, cls, fn) => { const b = document.createElement("button"); b.type = "button"; b.textContent = label; if (cls) b.className = cls; b.onclick = fn; actions.appendChild(b); };
+  const dlg = $("dlg");
+  add("Cancel", "", () => dlg.close());
+  if (replace.length && replace.length < chosen.length)
+    add(`Skip the ${replace.length} with audio`, "", () => { dlg.close(); submitConvert(chosen.filter((c) => !replace.includes(c)).map((c) => c.index), false); });
+  add(replace.length ? `Convert all ${chosen.length} (replace)` : `Convert ${chosen.length} chapter${chosen.length === 1 ? "" : "s"}`, "primary",
+      () => { dlg.close(); submitConvert(chosen.map((c) => c.index), replace.length > 0); });
+  dlg.showModal();
+});
+
+async function submitConvert(selection, overwrite) {
+  $("convert").disabled = true;
+  const body = {
+    processor: $("processor").value, params: currentParams(), selection, overwrite,
+    title: $("btitle").value, author: $("bauthor").value, model: $("model").value,
+    voice: $("voice").value || null, dialog_voice: $("dialog_voice").value || null,
+    temperature: Number($("temperature").value) || null, read_titles: $("read_titles").checked,
+    workers: machineChoice(),
+  };
+  const r = await fetch(`/api/uploads/${state.upload}/convert`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) { toast(await errText(r)); updateConfirm(); return; }
+  const job = await r.json();
+  state.openBooks.add(job.book_md5);
+  toast(`Queued “${job.title}”`);
+  resetFlow(false); location.hash = "#jobs"; refreshJobs();
+}
+$("startOver").addEventListener("click", () => resetFlow(true));
+function resetFlow(deleteUpload) {
+  if (deleteUpload && state.upload) fetch(`/api/uploads/${state.upload}`, { method: "DELETE" });
+  state.upload = null; state.info = null; state.preview = null; state.selected = new Set();
+  $("file").value = ""; $("umsg").className = "muted"; $("umsg").textContent = "EPUB, PDF, MOBI, AZW3, FB2, DOCX, RTF, TXT or Markdown.";
+  $("inLibrary").classList.add("hidden"); $("upCover").classList.add("hidden");
+  show(false); window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+/* ---------- playlists (jobs and library) ---------- */
+function playTrack(root, n) {
+  const items = root._items || [], audio = root.querySelector("audio");
+  if (!items[n]) return;
+  root._now = n; audio.src = items[n].url; audio.play().catch(() => toast("That chapter is not ready yet"));
+  root.querySelectorAll(".tr").forEach((tr) => tr.classList.toggle("now", Number(tr.dataset.track) === n));
+}
+function trackRows(items, withDelete) {
+  return items.map((it, i) => `<div class="tr" data-track="${i}"><button type="button" class="small play"><span>▶ ${esc(it.title)}</span><span class="muted">${esc(it.meta)}</span></button>${withDelete ? `<button type="button" class="small danger" data-del="${esc(it.file)}" aria-label="Delete this audio file">×</button>` : ""}</div>`).join("");
+}
+function wirePlaylist(root) {
+  const audio = root.querySelector("audio");
+  audio.addEventListener("ended", () => { if (root._now + 1 < (root._items || []).length) playTrack(root, root._now + 1); });
+  root.addEventListener("click", (e) => {
+    const tr = e.target.closest(".tr"); if (tr && e.target.closest(".play")) playTrack(root, Number(tr.dataset.track));
+  });
+}
+
+/* ---------- jobs ---------- */
+const jobEls = new Map();
+function jobShell(j) {
+  const el = document.createElement("div");
+  el.className = "job"; el.dataset.id = j.id;
+  el.innerHTML = '<div class="top"></div><div class="bar"><i></i></div><div class="status muted"></div><div class="wk"></div><div class="err"></div><div class="media"></div>';
+  return el;
+}
+function setHtml(node, html) { if (node.dataset.h !== html) { node.innerHTML = html; node.dataset.h = html; } }
+
+function patchJob(el, j) {
+  const total = j.chapters_total || 1;
+  const lanes = j.workers || [];
+  const inFlight = lanes.reduce((a, w) => a + (w.state === "rendering" && w.clip_count ? w.clip_index / w.clip_count : 0), 0);
+  const frac = j.state === "done" ? 1 : Math.min(1, (j.chapters_done + inFlight) / total);
+  const active = ["queued", "running", "assembling"].includes(j.state);
+  const acts = active ? `<button class="small" data-a="cancel" data-id="${j.id}">Cancel</button>`
+    : (j.state === "error" || j.state === "cancelled" ? `<button class="small" data-a="retry" data-id="${j.id}">Retry</button> ` : "") + `<button class="small" data-a="delete" data-id="${j.id}">Remove from list</button>`;
+  setHtml(el.querySelector(".top"), `<b>${esc(j.title)}</b><span>${acts}</span>`);
+  el.querySelector(".bar i").style.width = `${Math.round(frac * 100)}%`;
+  el.querySelector(".bar").classList.toggle("hidden", j.state === "done");
+  const detail = j.state === "done" ? "" : ` · ${j.chapters_done}/${j.chapters_total} chapters`;
+  el.querySelector(".status").textContent = `${j.state} · ${j.model}${j.voice ? " · " + j.voice : ""}${j.dialog_voice ? " / " + j.dialog_voice : ""}${detail}`;
+  setHtml(el.querySelector(".wk"), laneLines(j, lanes));
+  const err = el.querySelector(".err"); err.textContent = j.error || ""; err.classList.toggle("hidden", !j.error);
+  patchMedia(el.querySelector(".media"), j);
+}
+
+/* what each machine is doing: lines under a running job, a one-line summary once it is done */
+function laneLines(j, lanes) {
+  if (!lanes.length) return "";
+  const active = ["queued", "running", "assembling"].includes(j.state);
+  if (!active) {
+    const used = lanes.filter((w) => w.done > 0);
+    return j.state === "done" && lanes.length > 1 && used.length
+      ? `<div class="muted">Made on ${used.map((w) => `${esc(w.label)} (${w.done})`).join(", ")}</div>`
+      : lanes.filter((w) => w.state === "failed").map((w) => `<div class="bad">${esc(w.label)} dropped out: ${esc(w.error)}</div>`).join("");
+  }
+  return lanes.map((w) => {
+    const done = w.done ? ` · ${w.done} done` : "";
+    if (w.state === "failed") return `<div class="bad">${esc(w.label)} dropped out: ${esc(w.error)}${done}</div>`;
+    if (w.state === "preparing") return `<div class="muted">${esc(w.label)} · ${esc(w.detail || "getting ready")}</div>`;
+    if (w.state === "rendering") return `<div>${esc(w.label)} · “${esc(w.chapter)}” clip ${Math.min(w.clip_index + 1, w.clip_count)}/${w.clip_count}${done}</div>`;
+    return `<div class="muted">${esc(w.label)} · ${w.state === "waiting" ? "waiting" : "no more chapters to take"}${done}</div>`;
+  }).join("");
+}
+
+function patchMedia(media, j) {
+  if (!media.querySelector("audio")) {
+    media.innerHTML = '<audio controls preload="none" class="hidden"></audio><div class="chs"></div><div class="links"></div>';
+    wirePlaylist(media);
+  }
+  const ready = j.chapters.filter((c) => c.seconds != null && c.file);
+  const items = ready.map((c) => ({ url: audioUrl(j.book_md5, c.file), title: c.title, meta: fmtClock(c.seconds), file: c.file }));
+  media._items = items;
+  const rows = trackRows(items, false);
+  setHtml(media.querySelector(".chs"), rows);
+  media.querySelector("audio").classList.toggle("hidden", items.length === 0);
+  if (media._now != null) media.querySelectorAll(".tr").forEach((tr) => tr.classList.toggle("now", Number(tr.dataset.track) === media._now));
+  setHtml(media.querySelector(".links"), j.state === "done"
+    ? `<a href="#library" data-open-book="${j.book_md5}">Open in library</a> <span class="muted">· ${items.length} chapter${items.length === 1 ? "" : "s"} in <span class="md5">library/${esc(j.book_md5)}/</span></span>`
+    : items.length ? `<span class="muted">${items.length} chapter${items.length === 1 ? "" : "s"} ready to play while the rest is made</span>` : "");
+}
+
+function syncJobs(jobs) {
+  const box = $("jobs"), seen = new Set();
+  jobs.forEach((j, idx) => {
+    seen.add(j.id);
+    let el = jobEls.get(j.id);
+    if (!el) { el = jobShell(j); jobEls.set(j.id, el); }
+    if (box.children[idx] !== el) box.insertBefore(el, box.children[idx] || null);
+    patchJob(el, j);
+  });
+  for (const [id, el] of jobEls) if (!seen.has(id)) { el.remove(); jobEls.delete(id); }
+  $("jobsEmpty").classList.toggle("hidden", jobs.length > 0);
+  const active = jobs.filter((j) => ["queued", "running", "assembling"].includes(j.state)).length;
+  $("jobBadge").textContent = active; $("jobBadge").classList.toggle("hidden", active === 0);
+}
+async function refreshJobs() {
+  try { syncJobs(await (await fetch("/api/jobs")).json()); } catch (e) {}
+}
+$("jobs").addEventListener("click", async (e) => {
+  const open = e.target.closest("[data-open-book]"); if (open) { state.openBooks.add(open.dataset.openBook); return; }
+  const b = e.target.closest("button[data-a]"); if (!b) return;
+  const { a, id } = b.dataset;
+  await fetch(`/api/jobs/${id}` + (a === "delete" ? "" : "/" + a), { method: a === "delete" ? "DELETE" : "POST" });
+  refreshJobs();
+});
+
+/* ---------- library ---------- */
+const bookEls = new Map();
+function bookShell(b) {
+  const el = document.createElement("section");
+  el.className = "card"; el.dataset.md5 = b.md5;
+  el.innerHTML = '<div class="book"><div class="cover"></div><div class="info"></div><div class="side"></div></div><div class="detail hidden"></div>';
+  el.querySelector(".side").addEventListener("click", (e) => {
+    if (e.target.closest("[data-toggle-book]")) toggleBook(el, b.md5);
+    if (e.target.closest("[data-rename]")) openRename(el._book);
+  });
+  el.querySelector(".info").addEventListener("click", (e) => { if (e.target.closest(".t")) toggleBook(el, b.md5); });
+  return el;
+}
+function patchBook(el, b) {
+  const cover = el.querySelector(".cover");
+  const want = b.has_cover ? `<img class="cover" alt="" src="/api/library/${b.md5}/cover">` : "♪";
+  if (cover.dataset.h !== want) { cover.innerHTML = want; cover.dataset.h = want; }
+  const chips = b.voices.map((v) => `<span class="chip">${esc(v)}</span>`).join("");
+  setHtml(el.querySelector(".info"), `<div class="t" style="cursor:pointer">${esc(b.title || "(untitled)")}</div>
+    <div class="muted">${esc(b.author)}${b.language ? " · " + esc(b.language) : ""}</div>
+    <div class="muted">${b.audio_count} audio file${b.audio_count === 1 ? "" : "s"} · ${fmtDuration(b.seconds)}</div>
+    <div>${chips}</div><div class="md5" title="MD5 of the book file">${b.md5}</div>
+    ${b.source_name && !b.source_name.startsWith(b.md5) ? `<div class="muted" style="overflow-wrap:anywhere">File: ${esc(b.source_name)}</div>` : ""}`);
+  const open = state.openBooks.has(b.md5);
+  el._book = b;
+  setHtml(el.querySelector(".side"), `<div style="display:flex;flex-direction:column;gap:6px"><button type="button" class="small" data-toggle-book>${open ? "Hide" : "Open"}</button><button type="button" class="small" data-rename>Rename</button></div>`);
+  const detail = el.querySelector(".detail");
+  detail.classList.toggle("hidden", !open);
+  if (open && (detail.dataset.updated !== String(b.updated) || !detail.dataset.updated)) {
+    const playing = detail.querySelector("audio") && !detail.querySelector("audio").paused;
+    if (!playing) loadDetail(el, b.md5, b.updated);
+  }
+}
+function toggleBook(el, md5) {
+  if (state.openBooks.has(md5)) state.openBooks.delete(md5); else state.openBooks.add(md5);
+  refreshLibrary();
+}
+async function loadDetail(el, md5, updated) {
+  const detail = el.querySelector(".detail");
+  const r = await fetch(`/api/library/${md5}`);
+  if (!r.ok) { detail.textContent = await errText(r); return; }
+  const book = await r.json();
+  detail.dataset.updated = String(updated);
+  detail.innerHTML = book.groups.map((g, gi) => `<div class="group" data-gi="${gi}">
+      <div class="gh"><b>${esc(g.label)}</b>
+        <span class="muted">${g.files.length} chapter${g.files.length === 1 ? "" : "s"} · ${fmtDuration(g.seconds)} · ${fmtMB(g.bytes)} · expressiveness ${g.temperature}</span></div>
+      <audio controls preload="none"></audio>
+      <div class="chs">${trackRows(g.files.map((f) => ({ url: audioUrl(md5, f.file), title: `${f.index + 1}. ${f.title}`, meta: `${fmtClock(f.seconds)} · ${fmtMB(f.bytes)}`, file: f.file })), true)}</div>
+      <div style="margin-top:8px"><a href="/api/library/${md5}/book.m4b?group=${g.voice_sig}" download>Download as one chaptered M4B</a>
+        <span class="muted"> · or the files in <span class="md5">library/${md5}/</span></span></div></div>`).join("")
+    + `<div style="margin-top:12px"><button type="button" class="small danger" data-del-book="${md5}">Delete this book and all its audio</button></div>`;
+  detail.querySelectorAll(".group").forEach((g, gi) => {
+    g._items = book.groups[gi].files.map((f) => ({ url: audioUrl(md5, f.file), title: f.title }));
+    wirePlaylist(g);
+  });
+}
+let renaming = null;
+function openRename(book) {
+  renaming = book.md5; $("editTitle").value = book.title; $("editAuthor").value = book.author === "Unknown" ? "" : book.author;
+  $("dlgEdit").showModal(); $("editTitle").select();
+}
+$("editCancel").onclick = () => $("dlgEdit").close();
+$("editForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const r = await fetch(`/api/library/${renaming}`, { method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: $("editTitle").value, author: $("editAuthor").value }) });
+  if (!r.ok) { toast(await errText(r)); return; }
+  $("dlgEdit").close(); toast("Renamed");
+  const card = bookEls.get(renaming); if (card) card.querySelector(".detail").dataset.updated = "";
+  refreshLibrary();
+});
+$("library").addEventListener("click", async (e) => {
+  const card = e.target.closest("[data-md5]"); if (!card) return;
+  const md5 = card.dataset.md5;
+  const del = e.target.closest("[data-del]");
+  if (del) {
+    if (!confirm("Delete this audio file?")) return;
+    const r = await fetch(`/api/library/${md5}/audio/${encodeURIComponent(del.dataset.del)}`, { method: "DELETE" });
+    if (!r.ok) toast(await errText(r)); card.querySelector(".detail").dataset.updated = ""; refreshLibrary(); return;
+  }
+  if (e.target.closest("[data-del-book]")) {
+    if (!confirm("Delete this book and every audio file made for it? The original book file is kept.")) return;
+    const r = await fetch(`/api/library/${md5}`, { method: "DELETE" });
+    if (!r.ok) toast(await errText(r)); state.openBooks.delete(md5); refreshLibrary();
+  }
+});
+async function refreshLibrary() {
+  let books;
+  try { books = await (await fetch("/api/library")).json(); } catch (e) { return; }
+  const box = $("library"), seen = new Set();
+  books.forEach((b, idx) => {
+    seen.add(b.md5);
+    let el = bookEls.get(b.md5);
+    if (!el) { el = bookShell(b); bookEls.set(b.md5, el); }
+    if (box.children[idx] !== el) box.insertBefore(el, box.children[idx] || null);
+    patchBook(el, b);
+  });
+  for (const [md5, el] of bookEls) if (!seen.has(md5)) { el.remove(); bookEls.delete(md5); }
+  $("libEmpty").classList.toggle("hidden", books.length > 0);
+}
+
+/* ---------- the machines: settings and the Convert picker ---------- */
+let engine = null;   // what the server has saved
+let draft = null;    // what is on screen in Settings
+state.machines = []; state.live = {}; state.catalog = [];
+const machineById = (id) => state.machines.find((m) => m.id === id);
+const modelWord = (m) => (m.ready ? "ready" : m.loading ? "loading" : "not loaded");
+const blankWorker = () => ({ id: null, name: "", url: "", token: "", clear_token: false, enabled: true, has_token: false, test: null });
+
+async function loadEngine() {
+  const r = await fetch("/api/engine");
+  if (!r.ok) return;
+  engine = await r.json();
+  if (!draft || !state.engineDirty) {
+    draft = { local_enabled: engine.local.enabled, workers: engine.workers.map((w) => ({ ...w, token: "", clear_token: false, test: null })) };
+    renderMachines();
+  }
+  await loadMachines();
+}
+function renderMachines() {
+  const local = engine.local;
+  $("machines").innerHTML = `<div class="mrow"><label class="opt" style="margin:0"><input type="checkbox" data-f="local_enabled" ${draft.local_enabled ? "checked" : ""} ${local.available ? "" : "disabled"}>
+      <span><b>This server</b> <span class="muted">runs the models itself.</span> ${local.available ? "" : '<span class="err">Not available: the voice models are not installed on this server.</span>'}</span></label>
+      <div class="mstat" data-key="local"></div><div class="mmodels" data-key="local"></div></div>` +
+    draft.workers.map((w, i) => `<div class="mrow" data-i="${i}">
+      <div class="row"><div class="use"><label><input type="checkbox" data-f="enabled" ${w.enabled ? "checked" : ""}> Use</label></div>
+        <div><label>Name</label><input type="text" data-f="name" value="${esc(w.name)}" placeholder="Laptop"></div>
+        <div><label>Address</label><input type="text" data-f="url" value="${esc(w.url)}" placeholder="http://192.168.1.20:8780" autocomplete="off"></div>
+        <div><label>Token</label><input type="password" data-f="token" value="${esc(w.token)}" autocomplete="off" placeholder="${w.has_token ? "saved; blank keeps it" : "none"}"></div></div>
+      <div class="actions-row"><button type="button" class="small" data-act="test">Test</button>
+        <button type="button" class="small danger" data-act="remove">Remove</button>
+        ${w.has_token ? `<label class="muted" style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" data-f="clear_token" ${w.clear_token ? "checked" : ""}> forget the saved token</label>` : ""}</div>
+      <div class="mstat" data-key="${i}"></div><div class="mmodels" data-key="${i}"></div></div>`).join("");
+  paintStatus();
+}
+function describeLive(m) {
+  if (!m.online) return { text: `Offline: ${m.error || "no answer"}`, cls: "bad" };
+  const models = m.kind === "local" || Object.values(m.models || {}).some((v) => v.state) ? "" :
+    Object.entries(m.models || {}).map(([k, v]) => `${k} ${modelWord(v)}`).join(", ");
+  const caps = m.capabilities || {};
+  const notes = [caps.synthesize === false ? "takes phonemes only (this server does the text work)" : "", caps.clone === false ? "cannot clone voices" : ""].filter(Boolean).join("; ");
+  return { text: `Online${m.latency_ms != null ? ` · ${m.latency_ms} ms` : ""}${models ? ` · ${models}` : ""}${notes ? ` · ${notes}` : ""}`, cls: "good" };
+}
+/* what a machine has of each model, with a button to fetch what it lacks */
+const catalogLabel = (id) => (state.catalog.find((c) => c.id === id) || { label: id }).label;
+function modelChips(m) {
+  return Object.entries(m.models || {}).filter(([, v]) => v.state).map(([id, v]) => {
+    const mb = v.size_mb ? ` (about ${v.size_mb} MB)` : "";
+    let word, cls = "", button = "";
+    if (!v.supported) { word = "cannot run here"; }
+    else if (v.state === "ready") { word = "ready"; cls = "ready"; }
+    else if (v.state === "loading") { word = "loading…"; cls = "busy"; }
+    else if (v.state === "downloading") { word = `downloading${v.bytes ? ` ${Math.round(v.bytes / 1e6)} of ${v.size_mb} MB` : "…"}`; cls = "busy"; }
+    else if (v.state === "error") { word = "failed: " + (v.error || ""); cls = "error"; button = "Retry"; }
+    else if (v.state === "downloaded") { word = "on disk"; button = "Load"; }
+    else { word = "not downloaded"; button = `Download${mb}`; }
+    return `<div class="mmodel ${cls}"><div class="mname">${esc(catalogLabel(id))}</div><div class="mstate">${esc(word)}</div>${button ? `<button type="button" class="small" data-fetch="${esc(m.id)}|${esc(id)}">${esc(button)}</button>` : ""}</div>`;
+  }).join("");
+}
+$("machines").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-fetch]"); if (!b) return;
+  const [node, model] = b.dataset.fetch.split("|"); b.disabled = true;
+  const r = await fetch(`/api/workers/${encodeURIComponent(node)}/models/${encodeURIComponent(model)}`, { method: "POST" });
+  if (!r.ok) toast(await errText(r)); else toast(`Asked for the ${catalogLabel(model)} model`);
+  setTimeout(loadMachines, 800);
+});
+function paintStatus() {
+  const put = (key, d) => { const el = document.querySelector(`#machines .mstat[data-key="${key}"]`); if (el) { el.textContent = d ? d.text : ""; el.className = "mstat " + (d ? d.cls : ""); } };
+  const chips = (key, m) => {
+    const el = document.querySelector(`#machines .mmodels[data-key="${key}"]`); if (el) setHtml(el, m ? modelChips(m) : "");
+  };
+  const local = state.machines.find((m) => m.kind === "local");
+  if (local) { put("local", describeLive(local)); chips("local", local); }
+  (draft ? draft.workers : []).forEach((w, i) => {
+    const live = w.id && state.machines.find((m) => m.id === w.id);
+    if (w.test) { put(i, w.test.ok ? describeLive({ online: true, ...w.test }) : { text: w.test.error, cls: "bad" }); chips(i, null); return; }
+    put(i, live ? describeLive(live) : { text: "Not saved yet: test it, then Save.", cls: "" });
+    chips(i, live && live.online ? live : null);
+  });
+}
+$("machines").addEventListener("input", (e) => {
+  const f = e.target.dataset.f; if (!f) return;
+  const row = e.target.closest(".mrow"), val = e.target.type === "checkbox" ? e.target.checked : e.target.value;
+  if (row.dataset.i === undefined) draft[f] = val; else { const w = draft.workers[Number(row.dataset.i)]; w[f] = val; if (f === "url" || f === "token") w.test = null; }
+  state.engineDirty = true;
+});
+$("machines").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-act]"); if (!b) return;
+  const i = Number(b.closest(".mrow").dataset.i), w = draft.workers[i];
+  if (b.dataset.act === "remove") { draft.workers.splice(i, 1); state.engineDirty = true; renderMachines(); return; }
+  w.test = { ok: false, error: "Testing…" }; paintStatus();
+  const r = await fetch("/api/engine/test", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ worker_url: w.url, worker_token: w.token || null, worker_id: w.id }) });
+  w.test = r.ok ? await r.json() : { ok: false, error: await errText(r) };
+  if (w.test.ok && w.test.name && !w.name) { w.name = w.test.name; renderMachines(); }
+  paintStatus();
+});
+$("addWorker").addEventListener("click", () => { draft.workers.push(blankWorker()); state.engineDirty = true; renderMachines(); });
+$("engSave").addEventListener("click", async () => {
+  const say = (t, cls) => { $("engMsg").textContent = t; $("engMsg").className = cls; };
+  const body = { local_enabled: draft.local_enabled, workers: draft.workers.map((w) => ({ id: w.id, name: w.name, url: w.url, token: w.token || null, clear_token: !!w.clear_token, enabled: w.enabled })) };
+  const r = await fetch("/api/engine", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) { say(await errText(r), "err"); return; }
+  state.engineDirty = false; draft = null;
+  say("Saved. Voices are loading from the first machine that is on.", "ok"); toast("Voice machines saved");
+  await loadEngine(); loadVoices();
+});
+setInterval(() => { if (currentTab() === "settings") loadEngine(); }, 4000);
+
+/* Convert: which machines share this book */
+const storedRun = () => { try { return JSON.parse(localStorage.getItem("runOn") || "{}"); } catch (e) { return {}; } };
+const saveRun = (v) => { try { localStorage.setItem("runOn", JSON.stringify(v)); } catch (e) {} };
+async function loadMachines() {
+  try { const r = await fetch("/api/workers"); if (!r.ok) return; state.machines = await r.json(); } catch (e) { return; }
+  if (!state.catalog.length) { try { state.catalog = await (await fetch("/api/models")).json(); } catch (e) {} }
+  const run = storedRun(), known = new Set(run.known || []), chosen = new Set(run.chosen || []);
+  state.machines.forEach((m) => { if (!known.has(m.id)) { known.add(m.id); if (m.enabled) chosen.add(m.id); } });
+  state.runOn = new Set([...chosen].filter((id) => machineById(id)));
+  saveRun({ known: [...known], chosen: [...state.runOn] });
+  renderRunOn(); paintStatus();
+  const first = state.machines.find((m) => m.enabled) || state.machines[0];
+  $("engineLine").innerHTML = first ? `The voice list and samples come from ${esc(first.name)}. <a href="#settings">Voice machines</a>` : "";
+}
+function machineIssue(m) {
+  if (!m.online) return `offline${m.error ? ": " + m.error : ""}`;
+  const caps = m.capabilities || {}, model = $("model").value;
+  if (caps.synthesize === false && !(caps.infer || []).includes(model)) return `cannot run the ${catalogLabel(model)} model`;
+  const have = m.models && m.models[model];
+  if (have && have.supported === false) return `cannot run the ${catalogLabel(model)} model (not installed there)`;
+  const cloned = [sel.narrator(), sel.dialog()].filter(Boolean).some((id) => (state.voices.find((x) => x.id === id) || {}).cloned);
+  return cloned && caps.clone === false ? "cannot use cloned voices" : null;
+}
+function machinePrep(m) {
+  const model = $("model").value, have = m.models && m.models[model], name = catalogLabel(model);
+  if (!have) return `will get the ${name} model first`;
+  if (have.ready) return `${name} model ready`;
+  const mb = have.size_mb ? ` (about ${have.size_mb} MB)` : "";
+  if (have.state === "downloading") return `downloading the ${name} model${have.bytes ? ` (${Math.round(have.bytes / 1e6)} of ${have.size_mb} MB)` : ""}; the job starts when it is done`;
+  if (have.state === "loading") return `loading the ${name} model; the job starts when it is ready`;
+  if (have.state === "downloaded") return `has the ${name} model on disk and will load it first`;
+  return `does not have the ${name} model yet: will download it${mb} first, then start`;
+}
+const machineChoice = () => (state.machines.length > 1 && state.runOn ? [...state.runOn] : null);
+function renderRunOn() {
+  const box = $("runOn"), many = state.machines.length > 1;
+  box.classList.toggle("hidden", !many);
+  if (!many) return;
+  state.machines.forEach((m) => { if (machineIssue(m) && state.runOn.has(m.id)) state.runOn.delete(m.id); });
+  setHtml($("runOnList"), state.machines.map((m) => {
+    const issue = machineIssue(m);
+    return `<label class="run ${issue ? "dis" : ""}"><input type="checkbox" data-id="${esc(m.id)}" ${state.runOn.has(m.id) ? "checked" : ""} ${issue ? "disabled" : ""}>
+      <span><b>${esc(m.name)}</b><span class="dot ${m.online ? "on" : "off"}"></span><span class="muted">${esc(issue || machinePrep(m))}${m.enabled ? "" : " · switched off in Settings"}</span></span></label>`;
+  }).join(""));
+  updateConfirm();
+}
+$("runOnList").addEventListener("change", (e) => {
+  const id = e.target.dataset.id; if (!id) return;
+  e.target.checked ? state.runOn.add(id) : state.runOn.delete(id);
+  const run = storedRun(); saveRun({ known: run.known || [], chosen: [...state.runOn] });
+  updateConfirm();
+});
+$("runOnRefresh").addEventListener("click", loadMachines);
+setInterval(() => { if (currentTab() === "convert" && state.upload && !document.hidden) loadMachines(); }, 6000);
+
+/* ---------- Calibre-Web: settings and the browsing tab ---------- */
+const cal = { configured: null, trail: [], next: null, seq: 0 };
+async function loadCalibreSettings() {
+  const r = await fetch("/api/calibre"); if (!r.ok) return;
+  const c = await r.json();
+  if (!state.calDirty) { $("calUrl").value = c.url || ""; $("calUser").value = c.username || ""; $("calPass").value = ""; }
+  $("calPass").placeholder = c.has_password ? "saved; blank keeps it" : "none";
+  $("calOffBtn").classList.toggle("hidden", !c.configured);
+  cal.configured = c.configured;
+}
+["calUrl", "calUser", "calPass"].forEach((id) => $(id).addEventListener("input", () => { state.calDirty = true; }));
+const calBody = () => ({ url: $("calUrl").value, username: $("calUser").value, password: $("calPass").value || null });
+const calSay = (t, cls) => { $("calMsg").textContent = t; $("calMsg").className = cls; };
+$("calTest").addEventListener("click", async () => {
+  calSay("Testing…", "muted");
+  const r = await fetch("/api/calibre/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(calBody()) });
+  if (!r.ok) { calSay(await errText(r), "err"); return; }
+  const d = await r.json();
+  calSay(`Connected to “${d.title}”.${d.sections.length ? " Sections: " + d.sections.join(", ") + "." : ""}`, "ok");
+});
+$("calSave").addEventListener("click", async () => {
+  const r = await fetch("/api/calibre", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(calBody()) });
+  if (!r.ok) { calSay(await errText(r), "err"); return; }
+  state.calDirty = false; cal.trail = []; calSay("Saved. Open the Calibre tab to browse.", "ok"); toast("Calibre-Web saved");
+  loadCalibreSettings();
+});
+$("calOffBtn").addEventListener("click", async () => {
+  await fetch("/api/calibre", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: "" }) });
+  state.calDirty = false; cal.trail = []; $("calUrl").value = ""; $("calUser").value = ""; $("calPass").value = "";
+  calSay("Disconnected. The saved address and password are removed.", "muted"); loadCalibreSettings();
+});
+
+async function calInit() {
+  await loadCalibreSettings();
+  $("calOff").classList.toggle("hidden", !!cal.configured);
+  $("calSearch").classList.toggle("hidden", !cal.configured);
+  if (!cal.configured) { $("calList").innerHTML = ""; $("calCrumbs").textContent = ""; $("calMore").classList.add("hidden"); return; }
+  if (!cal.trail.length) await calGo({ label: "Library", path: null }, true);
+}
+function calUrl(step) { const p = new URLSearchParams(); if (step.path) p.set("path", step.path); if (step.q) p.set("q", step.q); return `/api/calibre/feed?${p}`; }
+async function calGo(step, reset) {
+  const seq = ++cal.seq;
+  $("calErr").textContent = ""; $("calList").innerHTML = '<div class="muted" style="margin-top:10px">Loading…</div>'; $("calMore").classList.add("hidden");
+  const r = await fetch(calUrl(step));
+  if (seq !== cal.seq) return;
+  if (!r.ok) { $("calList").innerHTML = ""; $("calErr").textContent = await errText(r); return; }
+  const feed = await r.json();
+  const home = !step.path && !step.q;
+  if (home && reset) {
+    const recent = feed.entries.find((e) => e.kind === "nav" && /\/new\b|recent/i.test(e.path + e.title));
+    if (recent) { cal.trail = [{ label: "Library", path: null }]; return calGo({ label: recent.title, path: recent.path }, false); }
+  }
+  cal.trail = reset ? [step] : [...cal.trail.filter((t) => t !== step), step];
+  cal.next = feed.next; $("calList").innerHTML = "";
+  calRender(feed.entries);
+  if (!feed.entries.length) $("calList").innerHTML = '<div class="muted" style="margin-top:10px">Nothing here.</div>';
+  calCrumbs(feed);
+}
+function calCrumbs(feed) {
+  const parts = cal.trail.map((t, i) => i === cal.trail.length - 1 ? `<b>${esc(t.label)}</b>` : `<a href="#calibre" data-trail="${i}">${esc(t.label)}</a>`);
+  $("calCrumbs").innerHTML = parts.join(" › ") + (feed.total ? ` · ${feed.total} books` : "");
+  $("calMore").classList.toggle("hidden", !feed.next);
+}
+$("calCrumbs").addEventListener("click", (e) => {
+  const a = e.target.closest("[data-trail]"); if (!a) return; e.preventDefault();
+  const i = Number(a.dataset.trail), step = cal.trail[i]; cal.trail = cal.trail.slice(0, i); calGo(step, false);
+});
+const fmtSize = (n) => (!n ? "" : n < 1048576 ? ` · ${Math.max(1, Math.round(n / 1024))} KB` : ` · ${(n / 1048576).toFixed(1)} MB`);
+function calRender(entries) {
+  const box = $("calList");
+  entries.forEach((e) => {
+    const el = document.createElement("section");
+    if (e.kind === "nav") {
+      el.innerHTML = `<button type="button" class="cal-row" data-nav="${esc(e.path)}" data-label="${esc(e.title)}"><b>${esc(e.title)}</b><span class="muted">${esc(e.summary)}</span><span>›</span></button>`;
+    } else {
+      el.className = "card"; el._book = e;
+      const cover = e.cover ? `<img class="cover" loading="lazy" alt="" src="/api/calibre/image?path=${encodeURIComponent(e.cover)}">` : "♪";
+      const buttons = e.formats.length
+        ? e.formats.map((f, i) => `<button type="button" class="small ${i === 0 ? "primary" : ""}" data-fmt="${i}">${i === 0 ? "Convert" : "Use"} ${esc(f.format.toUpperCase())}${fmtSize(f.size)}</button>`).join("")
+        : `<span class="muted">No format this app reads${e.unsupported.length ? " (" + esc(e.unsupported.join(", ").toUpperCase()) + ")" : ""}</span>`;
+      const preview = e.web_url ? `<button type="button" class="small" data-preview title="Open this book in Calibre-Web in a new tab">Preview</button>` : "";
+      el.innerHTML = `<div class="book"><div class="cover">${cover}</div>
+        <div class="info"><div class="t">${esc(e.title)}</div><div class="muted">${esc(e.authors.join(", "))}</div>
+          ${e.summary ? `<div class="muted" style="margin-top:4px">${esc(e.summary)}</div>` : ""}</div>
+        <div class="side"><div class="fmt-btns">${buttons}${preview}</div></div></div>`;
+    }
+    box.appendChild(el);
+  });
+}
+$("calList").addEventListener("click", async (e) => {
+  const nav = e.target.closest("[data-nav]");
+  if (nav) { calGo({ label: nav.dataset.label, path: nav.dataset.nav }, false); return; }
+  const view = e.target.closest("button[data-preview]");
+  if (view) { window.open(view.closest("section")._book.web_url, "_blank", "noopener"); return; }
+  const b = e.target.closest("button[data-fmt]"); if (!b) return;
+  const book = b.closest("section")._book, f = book.formats[Number(b.dataset.fmt)];
+  document.querySelectorAll("#calList button[data-fmt]").forEach((x) => { x.disabled = true; });
+  const label = b.textContent; b.textContent = "Downloading…";
+  try {
+    const r = await fetch("/api/calibre/import", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: f.path, title: book.title, format: f.format, cover: book.image || book.cover }) });
+    if (!r.ok) { toast(await errText(r)); return; }
+    if (state.upload) resetFlow(true);
+    const up = await r.json();
+    location.hash = "#convert";
+    await openUpload(up.id);
+    toast(up.library_cover_updated ? `“${book.title}” is ready; its library cover now matches Calibre-Web`
+                                   : `“${book.title}” is ready to split into chapters`);
+  } finally {
+    document.querySelectorAll("#calList button[data-fmt]").forEach((x) => { x.disabled = false; }); b.textContent = label;
+  }
+});
+$("calMore").addEventListener("click", async () => {
+  if (!cal.next) return;
+  const r = await fetch(`/api/calibre/feed?path=${encodeURIComponent(cal.next)}`);
+  if (!r.ok) { $("calErr").textContent = await errText(r); return; }
+  const feed = await r.json(); cal.next = feed.next; calRender(feed.entries); $("calMore").classList.toggle("hidden", !feed.next);
+});
+$("calSearch").addEventListener("submit", (e) => {
+  e.preventDefault(); const q = $("calQ").value.trim();
+  if (q) calGo({ label: `Search “${q}”`, q }, false); else calGo({ label: "Library", path: null }, true);
+});
+
+/* ---------- voice cloning and start ---------- */
+$("cf").addEventListener("submit", async (e) => {
+  e.preventDefault(); $("cmsg").textContent = "Enrolling voice…";
+  const r = await fetch("/api/voices", { method: "POST", body: new FormData($("cf")) });
+  $("cmsg").className = r.ok ? "ok" : "err"; $("cmsg").textContent = r.ok ? "Added." : "Failed: " + await errText(r);
+  if (r.ok) { $("cf").reset(); loadVoices(); }
+});
+
+let lastDone = new Set();
+(async function init() {
+  state.defaults = await (await fetch("/api/defaults")).json();
+  $("model").value = state.defaults.model; $("temperature").value = state.defaults.temperature; syncModelFields();
+  $("read_titles").checked = state.defaults.read_titles;
+  $("file").accept = state.defaults.formats.join(",");
+  route(); loadEngine(); refreshJobs();
+  setInterval(async () => {
+    await refreshJobs();
+    const done = new Set([...jobEls.keys()].filter((id) => jobEls.get(id).querySelector(".status").textContent.startsWith("done")));
+    if ([...done].some((id) => !lastDone.has(id)) && currentTab() === "library") refreshLibrary();
+    lastDone = done;
+  }, 3000);
+})();
+</script>
+</body>
+</html>

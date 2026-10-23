@@ -1,0 +1,792 @@
+{
+ "model": "pnnbao-ump/VieNeu-TTS-v3-Nano",
+ "vieneu": "3.8.3",
+ "sample_rate": 24000,
+ "flow_fps": 15.625,
+ "group": 6,
+ "bos_id": 1,
+ "eos_id": 2,
+ "pad_id": 0,
+ "max_chunk_seconds": 15.0,
+ "max_chars_per_chunk": 140,
+ "numeric_cases": [
+  "short",
+  "two_chunks"
+ ],
+ "voice_layout": {
+  "speaker_emb": [
+   192
+  ],
+  "style": [
+   50,
+   256
+  ]
+ },
+ "onnx_runs_per_chunk": "1 text_encoder + 1 duration_predictor + steps x 2 vector_estimator + 1 codec_decoder",
+ "cases": [
+  {
+   "id": "short",
+   "text": "Xin chào các bạn.",
+   "chunks": [
+    "xin chào các bạn."
+   ],
+   "gaps": [],
+   "silence_seconds": [],
+   "phonemes": [
+    "sˈin tʃˈaː2w kˌaːɜc bˈaː6n."
+   ],
+   "ids": [
+    [
+     1,
+     30,
+     60,
+     22,
+     27,
+     3,
+     31,
+     55,
+     60,
+     15,
+     62,
+     9,
+     34,
+     3,
+     24,
+     61,
+     15,
+     62,
+     48,
+     17,
+     3,
+     16,
+     60,
+     15,
+     62,
+     12,
+     27,
+     7,
+     2
+    ]
+   ],
+   "log_seconds": [
+    0.5088189244270325
+   ],
+   "frames": [
+    26
+   ]
+  },
+  {
+   "id": "numbers",
+   "text": "Hôm nay là ngày 22/10/2026, giá SP500 là 4.200,5 điểm!",
+   "chunks": [
+    "hôm nay là ngày hai mươi hai tháng mười năm hai nghìn không trăm hai mươi sáu, giá ét pê năm trăm là bốn nghìn hai trăm phẩy năm điểm!"
+   ],
+   "gaps": [],
+   "silence_seconds": [],
+   "phonemes": [
+    "hˈom nˈaj lˌaː2 ŋˈa2j hˈaːj mˈyəj hˈaːj tˈaːɜŋ mˈyə2j nˈam hˈaːj ŋˈi2n xˌoŋ tʃˈam hˈaːj mˈyəj sˈaɜw, zˈaːɜ ˈɛɜt̪ pˈe nˈam tʃˈam lˌaː2 bˈoɜn ŋˈi2n hˈaːj tʃˈam fˈəɪ4 nˈam ɗˈiɛ4m!"
+   ],
+   "ids": [
+    [
+     1,
+     21,
+     60,
+     28,
+     26,
+     3,
+     27,
+     60,
+     15,
+     23,
+     3,
+     25,
+     61,
+     15,
+     62,
+     9,
+     3,
+     40,
+     60,
+     15,
+     9,
+     23,
+     3,
+     21,
+     60,
+     15,
+     62,
+     23,
+     3,
+     26,
+     60,
+     36,
+     45,
+     23,
+     3,
+     21,
+     60,
+     15,
+     62,
+     23,
+     3,
+     31,
+     60,
+     15,
+     62,
+     48,
+     40,
+     3,
+     26,
+     60,
+     36,
+     45,
+     9,
+     23,
+     3,
+     27,
+     60,
+     15,
+     26,
+     3,
+     21,
+     60,
+     15,
+     62,
+     23,
+     3,
+     40,
+     60,
+     22,
+     9,
+     27,
+     3,
+     35,
+     61,
+     28,
+     40,
+     3,
+     31,
+     55,
+     60,
+     15,
+     26,
+     3,
+     21,
+     60,
+     15,
+     62,
+     23,
+     3,
+     26,
+     60,
+     36,
+     45,
+     23,
+     3,
+     30,
+     60,
+     15,
+     48,
+     34,
+     5,
+     3,
+     37,
+     60,
+     15,
+     62,
+     48,
+     3,
+     60,
+     47,
+     48,
+     31,
+     63,
+     3,
+     29,
+     60,
+     19,
+     3,
+     27,
+     60,
+     15,
+     26,
+     3,
+     31,
+     55,
+     60,
+     15,
+     26,
+     3,
+     25,
+     61,
+     15,
+     62,
+     9,
+     3,
+     16,
+     60,
+     28,
+     48,
+     27,
+     3,
+     40,
+     60,
+     22,
+     9,
+     27,
+     3,
+     21,
+     60,
+     15,
+     62,
+     23,
+     3,
+     31,
+     55,
+     60,
+     15,
+     26,
+     3,
+     20,
+     60,
+     45,
+     51,
+     10,
+     3,
+     27,
+     60,
+     15,
+     26,
+     3,
+     44,
+     60,
+     22,
+     47,
+     10,
+     26,
+     4,
+     2
+    ]
+   ],
+   "log_seconds": [
+    2.1706438064575195
+   ],
+   "frames": [
+    137
+   ]
+  },
+  {
+   "id": "two_chunks",
+   "text": "Chúng ta cùng nghe một câu chuyện nhé, về hành trình của một người đi tìm sự thật giữa núi rừng xa xôi. Trời đã tối, gió thổi mạnh, và đường về còn dài.",
+   "chunks": [
+    "chúng ta cùng nghe một câu chuyện nhé, về hành trình của một người đi tìm sự thật giữa núi rừng xa xôi.",
+    "trời đã tối, gió thổi mạnh, và đường về còn dài."
+   ],
+   "gaps": [
+    "sentence"
+   ],
+   "silence_seconds": [
+    0.5
+   ],
+   "phonemes": [
+    "tʃˈuɜŋ t̪ˈaː kˈu2ŋ ŋˈɛ mˈo6t̪ kˈə1w tʃwˈiɛ6n ɲˈɛɜ, vˈe2 hˈe-2ɲ tʃˈi2ɲ kˌuə4 mˈo6t̪ ŋˈyə2j ɗˈi t̪ˈi2m sˈy6 tˈə6t̪ zˈyə5 nˈuɜj ɹˈy2ŋ sˈaː sˈoj.",
+    "tʃˈəː2j ɗˌaː5 t̪ˈoɜj, zˈɔɜ tˈo4j mˈe-6ɲ, vˌaː2 ɗˈyə2ŋ vˈe2 kˌɔ2n zˈaː2j."
+   ],
+   "ids": [
+    [
+     1,
+     31,
+     55,
+     60,
+     32,
+     48,
+     40,
+     3,
+     31,
+     63,
+     60,
+     15,
+     62,
+     3,
+     24,
+     60,
+     32,
+     9,
+     40,
+     3,
+     40,
+     60,
+     47,
+     3,
+     26,
+     60,
+     28,
+     12,
+     31,
+     63,
+     3,
+     24,
+     60,
+     45,
+     8,
+     34,
+     3,
+     31,
+     55,
+     34,
+     60,
+     22,
+     47,
+     12,
+     27,
+     3,
+     52,
+     60,
+     47,
+     48,
+     5,
+     3,
+     33,
+     60,
+     19,
+     9,
+     3,
+     21,
+     60,
+     19,
+     6,
+     9,
+     52,
+     3,
+     31,
+     55,
+     60,
+     22,
+     9,
+     52,
+     3,
+     24,
+     61,
+     32,
+     45,
+     10,
+     3,
+     26,
+     60,
+     28,
+     12,
+     31,
+     63,
+     3,
+     40,
+     60,
+     36,
+     45,
+     9,
+     23,
+     3,
+     44,
+     60,
+     22,
+     3,
+     31,
+     63,
+     60,
+     22,
+     9,
+     26,
+     3,
+     30,
+     60,
+     36,
+     12,
+     3,
+     31,
+     60,
+     45,
+     12,
+     31,
+     63,
+     3,
+     37,
+     60,
+     36,
+     45,
+     11,
+     3,
+     27,
+     60,
+     32,
+     48,
+     23,
+     3,
+     53,
+     60,
+     36,
+     9,
+     40,
+     3,
+     30,
+     60,
+     15,
+     62,
+     3,
+     30,
+     60,
+     28,
+     23,
+     7,
+     2
+    ],
+    [
+     1,
+     31,
+     55,
+     60,
+     45,
+     62,
+     9,
+     23,
+     3,
+     44,
+     61,
+     15,
+     62,
+     11,
+     3,
+     31,
+     63,
+     60,
+     28,
+     48,
+     23,
+     5,
+     3,
+     37,
+     60,
+     43,
+     48,
+     3,
+     31,
+     60,
+     28,
+     10,
+     23,
+     3,
+     26,
+     60,
+     19,
+     6,
+     12,
+     52,
+     5,
+     3,
+     33,
+     61,
+     15,
+     62,
+     9,
+     3,
+     44,
+     60,
+     36,
+     45,
+     9,
+     40,
+     3,
+     33,
+     60,
+     19,
+     9,
+     3,
+     24,
+     61,
+     43,
+     9,
+     27,
+     3,
+     37,
+     60,
+     15,
+     62,
+     9,
+     23,
+     7,
+     2
+    ]
+   ],
+   "log_seconds": [
+    1.9929288625717163,
+    1.4064271450042725
+   ],
+   "frames": [
+    115,
+    64
+   ]
+  }
+ ],
+ "numeric": {
+  "short": {
+   "case": "short",
+   "phonemes": "sˈin tʃˈaː2w kˌaːɜc bˈaː6n.",
+   "seed": 1234,
+   "voice": "Mỹ Duyên",
+   "steps": 16,
+   "cfg": 3.0,
+   "speed": 1.0,
+   "sway": 0.0,
+   "euler_schedule": "t_i = i / steps; x += (t_{i+1} - t_i) * v; v = v_uncond + cfg * (v_cond - v_uncond)",
+   "files": {
+    "ids": {
+     "file": "numeric_short_ids.i64",
+     "dtype": "<i8",
+     "shape": [
+      1,
+      29
+     ],
+     "byte_order": "little"
+    },
+    "style": {
+     "file": "numeric_short_style.f32",
+     "dtype": "<f4",
+     "shape": [
+      50,
+      256
+     ],
+     "byte_order": "little"
+    },
+    "speaker": {
+     "file": "numeric_short_speaker.f32",
+     "dtype": "<f4",
+     "shape": [
+      192
+     ],
+     "byte_order": "little"
+    },
+    "null_ids": {
+     "file": "numeric_short_null_ids.i64",
+     "dtype": "<i8",
+     "shape": [
+      1,
+      2
+     ],
+     "byte_order": "little"
+    },
+    "null_style": {
+     "file": "numeric_short_null_style.f32",
+     "dtype": "<f4",
+     "shape": [
+      1,
+      50,
+      256
+     ],
+     "byte_order": "little"
+    },
+    "null_speaker": {
+     "file": "numeric_short_null_speaker.f32",
+     "dtype": "<f4",
+     "shape": [
+      1,
+      192
+     ],
+     "byte_order": "little"
+    },
+    "ctx": {
+     "file": "numeric_short_ctx.f32",
+     "dtype": "<f4",
+     "shape": [
+      1,
+      29,
+      256
+     ],
+     "byte_order": "little"
+    },
+    "noise": {
+     "file": "numeric_short_noise.f32",
+     "dtype": "<f4",
+     "shape": [
+      1,
+      144,
+      26
+     ],
+     "byte_order": "little"
+    },
+    "first_step_v": {
+     "file": "numeric_short_first_step_v.f32",
+     "dtype": "<f4",
+     "shape": [
+      1,
+      144,
+      26
+     ],
+     "byte_order": "little"
+    },
+    "latent": {
+     "file": "numeric_short_latent.f32",
+     "dtype": "<f4",
+     "shape": [
+      1,
+      144,
+      26
+     ],
+     "byte_order": "little"
+    },
+    "decoder_wav": {
+     "file": "numeric_short_decoder_wav.f32",
+     "dtype": "<f4",
+     "shape": [
+      39936
+     ],
+     "byte_order": "little"
+    },
+    "final_wav": {
+     "file": "numeric_short_final_wav.f32",
+     "dtype": "<f4",
+     "shape": [
+      34320
+     ],
+     "byte_order": "little"
+    }
+   },
+   "log_seconds": 0.5088189244270325,
+   "frames": 26,
+   "tolerances": {
+    "ctx": "max abs diff 1e-3",
+    "first_step_v": "max abs diff 1e-2",
+    "decoder_wav": "correlation above 0.99 with the file",
+    "final_wav": "length within 1% and correlation above 0.98"
+   }
+  },
+  "two_chunks": {
+   "case": "two_chunks",
+   "phonemes": "tʃˈuɜŋ t̪ˈaː kˈu2ŋ ŋˈɛ mˈo6t̪ kˈə1w tʃwˈiɛ6n ɲˈɛɜ, vˈe2 hˈe-2ɲ tʃˈi2ɲ kˌuə4 mˈo6t̪ ŋˈyə2j ɗˈi t̪ˈi2m sˈy6 tˈə6t̪ zˈyə5 nˈuɜj ɹˈy2ŋ sˈaː sˈoj.",
+   "seed": 1234,
+   "voice": "Mỹ Duyên",
+   "steps": 16,
+   "cfg": 3.0,
+   "speed": 1.0,
+   "sway": 0.0,
+   "euler_schedule": "t_i = i / steps; x += (t_{i+1} - t_i) * v; v = v_uncond + cfg * (v_cond - v_uncond)",
+   "files": {
+    "ids": {
+     "file": "numeric_two_chunks_ids.i64",
+     "dtype": "<i8",
+     "shape": [
+      1,
+      143
+     ],
+     "byte_order": "little"
+    },
+    "style": {
+     "file": "numeric_two_chunks_style.f32",
+     "dtype": "<f4",
+     "shape": [
+      50,
+      256
+     ],
+     "byte_order": "little"
+    },
+    "speaker": {
+     "file": "numeric_two_chunks_speaker.f32",
+     "dtype": "<f4",
+     "shape": [
+      192
+     ],
+     "byte_order": "little"
+    },
+    "null_ids": {
+     "file": "numeric_two_chunks_null_ids.i64",
+     "dtype": "<i8",
+     "shape": [
+      1,
+      2
+     ],
+     "byte_order": "little"
+    },
+    "null_style": {
+     "file": "numeric_two_chunks_null_style.f32",
+     "dtype": "<f4",
+     "shape": [
+      1,
+      50,
+      256
+     ],
+     "byte_order": "little"
+    },
+    "null_speaker": {
+     "file": "numeric_two_chunks_null_speaker.f32",
+     "dtype": "<f4",
+     "shape": [
+      1,
+      192
+     ],
+     "byte_order": "little"
+    },
+    "ctx": {
+     "file": "numeric_two_chunks_ctx.f32",
+     "dtype": "<f4",
+     "shape": [
+      1,
+      143,
+      256
+     ],
+     "byte_order": "little"
+    },
+    "noise": {
+     "file": "numeric_two_chunks_noise.f32",
+     "dtype": "<f4",
+     "shape": [
+      1,
+      144,
+      115
+     ],
+     "byte_order": "little"
+    },
+    "first_step_v": {
+     "file": "numeric_two_chunks_first_step_v.f32",
+     "dtype": "<f4",
+     "shape": [
+      1,
+      144,
+      115
+     ],
+     "byte_order": "little"
+    },
+    "latent": {
+     "file": "numeric_two_chunks_latent.f32",
+     "dtype": "<f4",
+     "shape": [
+      1,
+      144,
+      115
+     ],
+     "byte_order": "little"
+    },
+    "decoder_wav": {
+     "file": "numeric_two_chunks_decoder_wav.f32",
+     "dtype": "<f4",
+     "shape": [
+      176640
+     ],
+     "byte_order": "little"
+    },
+    "final_wav": {
+     "file": "numeric_two_chunks_final_wav.f32",
+     "dtype": "<f4",
+     "shape": [
+      173520
+     ],
+     "byte_order": "little"
+    }
+   },
+   "log_seconds": 1.9929288625717163,
+   "frames": 115,
+   "tolerances": {
+    "ctx": "max abs diff 1e-3",
+    "first_step_v": "max abs diff 1e-2",
+    "decoder_wav": "correlation above 0.99 with the file",
+    "final_wav": "length within 1% and correlation above 0.98"
+   }
+  }
+ }
+}

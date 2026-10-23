@@ -1,0 +1,37 @@
+# The main server: the page, the library, the job queue, and (unless WITH_ENGINE=0) the speech models.
+#
+#   docker build -f Dockerfile.server -t ebook2audio-server .
+#   docker build -f Dockerfile.server --build-arg WITH_ENGINE=0 -t ebook2audio-server-lite .   # speech only on workers
+#
+# WITH_ENGINE=0 leaves out the speech packages (a much smaller image); the server then needs a voice worker.
+# WITH_CALIBRE=0 leaves out Calibre's ebook-convert (needed only for MOBI, AZW3, FB2, DOCX, RTF and similar).
+FROM python:3.12-slim
+
+ARG WITH_ENGINE=1
+ARG WITH_CALIBRE=1
+
+# ffmpeg: encoding and joining audio. poppler: PDF text and covers. libsndfile: reading audio for voice cloning.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg poppler-utils libsndfile1 \
+ && if [ "$WITH_CALIBRE" = "1" ]; then apt-get install -y --no-install-recommends calibre; fi \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /srv
+COPY requirements.txt requirements-engine.txt ./
+RUN pip install --no-cache-dir -r requirements.txt \
+ && if [ "$WITH_ENGINE" = "1" ]; then pip install --no-cache-dir -r requirements-engine.txt; fi
+COPY app app
+
+# Models download into /data/cache/hf (the English model into /data/cache/hf/supertonic3) the first time they are
+# needed, so mount /data to keep them. Nothing is downloaded or loaded at start unless PRELOAD_MODELS says so.
+ENV DATA_DIR=/data \
+    HF_HOME=/data/cache/hf \
+    PORT=8765 \
+    PYTHONUNBUFFERED=1
+VOLUME /data
+EXPOSE 8765
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD python -c "import os,urllib.request as u; u.urlopen('http://127.0.0.1:%s/healthz' % os.environ.get('PORT', '8765'), timeout=3)" || exit 1
+
+CMD ["python", "-m", "app"]

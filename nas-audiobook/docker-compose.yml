@@ -1,0 +1,40 @@
+services:
+  ebook2audio:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+      args:
+        WITH_ENGINE: "1"      # "0" for a small image that sends all speech to voice workers
+        WITH_CALIBRE: "1"
+    restart: unless-stopped
+    ports:
+      - "${SERVER_PORT:-8765}:8765"
+    environment:
+      TTS_MODEL: nano
+      TTS_TEMPERATURE: "0.8"
+      # TTS_DIALOG_VOICE: "Mỹ Duyên"   # a second voice for quoted speech
+      # TTS_PRECISION: fp32           # int8 is smaller and faster on CPUs with VNNI
+      READ_TITLES: "1"
+      # PRELOAD_MODELS: nano          # by default nothing is downloaded or loaded until it is needed
+      # Or send speech to a voice worker instead (can also be chosen in the Settings tab):
+      # TTS_BACKEND: remote
+      # TTS_WORKER_URL: http://192.168.1.20:8780
+      # TTS_WORKER_TOKEN: choose-a-secret
+    volumes:
+      - ${SERVER_DATA:-./data}:/data
+
+  audiobookshelf:
+    image: ghcr.io/advplyr/audiobookshelf:latest
+    restart: unless-stopped
+    ports:
+      - "13378:80"
+    volumes:
+      - ./data/library:/audiobooks
+      - ./abs/config:/config
+      - ./abs/metadata:/metadata
+
+# Both compose files join this network, so the server reaches a worker started from docker-compose.worker.yml
+# on the same machine as http://voice-worker:8780.
+networks:
+  default:
+    name: ebook2audio-net

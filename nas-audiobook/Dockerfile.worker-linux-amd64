@@ -1,0 +1,33 @@
+# A voice worker for Linux on an Intel or AMD x86_64 machine (a NAS, a mini PC, a Linux desktop).
+# Same worker as Dockerfile.worker, pinned to linux/amd64 so it builds the Intel image even on an ARM Mac.
+#
+#   docker build -f Dockerfile.worker-linux-amd64 -t ebook2audio-worker .
+#   docker run -d -p 8780:8780 -e WORKER_TOKEN=choose-a-secret -v worker-data:/data ebook2audio-worker
+#
+# Then add http://<this machine>:8780 and the token under Settings -> Voice machines on the server.
+FROM --platform=linux/amd64 python:3.12-slim
+
+# ffmpeg: converting a cloned voice's reference clip. libsndfile: reading audio.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg libsndfile1 \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /srv
+COPY requirements.txt requirements-engine.txt ./
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-engine.txt
+COPY app app
+
+# /data holds the downloaded models (so a restart or a new container does not download them again), the cloned
+# voices the server has sent, and the voice lists.
+ENV DATA_DIR=/data \
+    HF_HOME=/data/cache/hf \
+    WORKER_PORT=8780 \
+    PYTHONUNBUFFERED=1
+VOLUME /data
+EXPOSE 8780
+
+# /health needs the token when one is set, so the check sends it.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD python -c "import os,urllib.request as u; t=os.environ.get('WORKER_TOKEN'); u.urlopen(u.Request('http://127.0.0.1:%s/health' % os.environ.get('WORKER_PORT', '8780'), headers={'Authorization': 'Bearer ' + t} if t else {}), timeout=3)" || exit 1
+
+CMD ["python", "-m", "app.worker"]

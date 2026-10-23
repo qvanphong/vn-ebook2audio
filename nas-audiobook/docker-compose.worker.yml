@@ -1,0 +1,30 @@
+# A voice worker on the machine that will help (a laptop, a desktop, a second server):
+#
+#   WORKER_TOKEN=choose-a-secret docker compose -f docker-compose.worker.yml up -d --build
+#
+# Then add http://<this machine>:8780 and the token under Settings -> Voice machines on the main server.
+# The worker starts empty; the server asks it for the model a book needs and it downloads that model on demand
+# into the worker-data volume.
+services:
+  voice-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    restart: unless-stopped
+    ports:
+      - "${WORKER_PORT:-8780}:8780"
+    environment:
+      WORKER_TOKEN: ${WORKER_TOKEN:?set WORKER_TOKEN to a secret the main server will use}
+      WORKER_NAME: ${WORKER_NAME:-voice-worker}
+      # TTS_THREADS: "4"              # threads per model; the default is every CPU
+      # PRELOAD_MODELS: nano,english  # load models at start instead of on demand
+    volumes:
+      - worker-data:/data
+
+volumes:
+  worker-data:
+
+# Shared with docker-compose.yml, so a server on this machine reaches the worker as http://voice-worker:8780.
+networks:
+  default:
+    name: ebook2audio-net

@@ -1,0 +1,42 @@
+# A voice worker for Windows on an Intel or AMD x86_64 machine. Windows containers only: Docker Desktop must be in
+# Windows container mode, and the host must match the base image's Windows version (ltsc2022 needs Windows 11 or
+# Windows Server 2022). To run it from a Linux-container Docker Desktop instead, use Dockerfile.worker-linux-amd64.
+#
+#   docker build -f Dockerfile.worker-windows-amd64 -t ebook2audio-worker-windows .
+#   docker run -d -p 8780:8780 -e WORKER_TOKEN=choose-a-secret -v worker-data:C:\data ebook2audio-worker-windows
+#
+# Then add http://<this machine>:8780 and the token under Settings -> Voice machines on the server.
+# FFMPEG_URL is a full-build zip of ffmpeg for Windows x64. The default is the "latest" link; pin a version by
+# passing a specific zip, for example --build-arg FFMPEG_URL=https://.../ffmpeg-7.1-essentials_build.zip
+FROM python:3.12-windowsservercore-ltsc2022
+
+ARG FFMPEG_URL=https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip
+
+# ffmpeg is not in the Windows base image. Unpack it into C:\ffmpeg and put its bin folder on PATH.
+SHELL ["powershell", "-Command", "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue';"]
+RUN Invoke-WebRequest -Uri $env:FFMPEG_URL -OutFile C:\ffmpeg.zip; \
+    Expand-Archive -Path C:\ffmpeg.zip -DestinationPath C:\ffmpeg-tmp; \
+    Move-Item -Path (Get-ChildItem -Path C:\ffmpeg-tmp -Directory | Select-Object -First 1).FullName -Destination C:\ffmpeg; \
+    Remove-Item -Path C:\ffmpeg.zip, C:\ffmpeg-tmp -Recurse -Force
+SHELL ["cmd", "/S", "/C"]
+ENV PATH=C:\ffmpeg\bin;${PATH}
+
+WORKDIR C:\srv
+COPY requirements.txt requirements-engine.txt ./
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-engine.txt
+COPY app app
+
+# C:\data holds the downloaded models (so a restart or a new container does not download them again), the cloned
+# voices the server has sent, and the voice lists.
+ENV DATA_DIR=C:\data \
+    HF_HOME=C:\data\cache\hf \
+    WORKER_PORT=8780 \
+    PYTHONUNBUFFERED=1
+VOLUME C:\data
+EXPOSE 8780
+
+# /health needs the token when one is set, so the check sends it.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD ["python", "-c", "import os,urllib.request as u; t=os.environ.get('WORKER_TOKEN'); u.urlopen(u.Request('http://127.0.0.1:%s/health' % os.environ.get('WORKER_PORT', '8780'), headers={'Authorization': 'Bearer ' + t} if t else {}), timeout=3)"]
+
+CMD ["python", "-m", "app.worker"]
