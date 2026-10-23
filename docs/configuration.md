@@ -17,7 +17,7 @@ are saved on disk and win over the environment afterwards.
 | `TTS_TEMPERATURE` | `0.8` | Expressiveness of the Vietnamese voices; higher is more expressive and less steady |
 | `TTS_PRECISION` | `fp32` | Turbo only: `fp32` or `int8` |
 | `TTS_THREADS` | all CPUs visible | ONNX threads per model. The runtime's own default was twice as slow in one test |
-| `TTS_DEVICE` | `cpu` | Hardware for the models: `cpu`, `auto`, `cuda`, `directml`, `coreml`, `openvino`. Also the flag `python -m app --device cuda`. A device that is not available stops the start with a message. See [Using a GPU](workers.md#using-a-gpu) |
+| `TTS_DEVICE` | `auto` | Hardware for the models: `auto` (a GPU for the models that support one, the CPU for the rest), `cpu`, `cuda`, `directml`, `coreml`, `openvino`. Also the flag `python -m app --device cuda`. A device that is not available stops the start with a message. See [Using a GPU](workers.md#using-a-gpu) |
 | `READ_TITLES` | `1` | Read each chapter title before its text (`0` turns it off) |
 | `PRELOAD_MODELS` | `none` | Models to load at start, comma separated (`nano`, `turbo`, `english`). By default nothing is loaded or downloaded until needed. An unknown name stops the start |
 | `TTS_BACKEND` | `local` | First-start machine list: `local` (this server) or `remote` (one worker, this server off). Replaced by whatever you save in Settings |
@@ -31,7 +31,7 @@ Uploads can override model, voice, dialogue voice, expressiveness and title read
 
 ## Worker environment variables
 
-`WORKER_PORT` (8780), `WORKER_TOKEN`, `WORKER_NAME`, `WORKER_ACCEPTS` (`both` or `phonemes`), `PRELOAD_MODELS` (`none`),
+`WORKER_PORT` (8780), `WORKER_TOKEN`, `WORKER_NAME`, `WORKER_ACCEPTS` (`both` or `phonemes`), `WORKER_MODELS` (`all`: the models the worker serves), `PRELOAD_MODELS` (`none`),
 and `DATA_DIR`, `HF_HOME`, `SUPERTONIC_CACHE_DIR`, `TTS_THREADS`, `TTS_PRECISION`, `TTS_DEVICE` as above. See [Voice workers](workers.md).
 
 ## The data folder

@@ -53,28 +53,35 @@ chapters go in book order.
   was told to replace it.
 - A chapter in progress when you press **Cancel** is lost; every lane stops after its current sentence.
 
-## Making a machine ready: the passive worker
+## A worker owns its models
 
-A worker needs no model configured. It starts empty (`PRELOAD_MODELS` defaults to `none`) and the server tells it what
-a job needs. For each machine, before its first chapter:
+The server never tells a worker to download anything, and never picks its device. A worker decides two things for itself.
 
-1. The server asks the worker for the model (`POST /models/{model}/ensure`).
-   - Already loaded: it is used at once.
-   - On disk: the worker loads it.
-   - Never had it: the worker **downloads it first**, then loads it. The job starts after that.
-2. The Jobs tab shows each stage: "asking the worker for the … model", "downloading … (182 of about 280 MB)",
-   "loading", then the chapter it is on.
+**Which models it serves.** `WORKER_MODELS` (or `--models`) lists them, for example `nano,english`; the default is all
+three. A worker only takes part in a book whose model it serves, and Convert greys it out otherwise ("does not serve the
+… model"). A model it does not serve is never downloaded, even if asked for.
+
+**How and when it gets them.** A served model is downloaded and loaded by the worker itself, either at start (the
+models named in `PRELOAD_MODELS`, which must be among the served ones) or the first time a request needs it. In the
+second case, before a machine's first chapter:
+
+1. The server asks the worker for the model's voices, which is what makes a worker that serves the model start getting
+   it. Already loaded: it is used at once. On disk: the worker loads it. Never had it: the worker **downloads it
+   first**, then loads it. The job starts after that.
+2. The server only watches `GET /models` and the Jobs tab shows each stage: "waiting for the worker to get the … model",
+   "the worker is downloading … (182 of about 280 MB)", "the worker has the … model and is loading it", then the
+   chapter it is on.
 3. The voice named in the request is checked. A preset voice the worker lacks is reported by name and the worker
    drops out; a cloned voice it never had is uploaded to it.
 
 A worker that cannot run the model (the package is not installed, or it is a phone that only runs Nano) says so and
-drops out, and the others carry on. A worker without the newer endpoints (protocol 2) is waited for the old way, by
-asking for its voices, which makes it load the model.
+drops out, and the others carry on. A worker older than protocol 3 is waited for the same way.
 
-You can do step 1 ahead of time in **Settings**: each machine lists every model as `ready`, `on disk`, `downloading`,
-`not downloaded` or `cannot run here`, with a **Download** or **Load** button (`POST /api/workers/<id>/models/<model>`).
-The "of about N MB" figure is a rough size from the catalogue, and the amount arrived is counted from the worker's own
-cache folder, so the count can pass 100%.
+**Settings** lists each machine's models as `ready`, `on disk`, `downloading`, `not downloaded`, `not served by this
+worker` or `cannot run here`, with the device each runs on. Only **This server** has **Download** and **Load** buttons: a
+worker's models are changed on the worker (`WORKER_MODELS`, `PRELOAD_MODELS`), and asking the server to fetch one for a
+worker is refused (`POST /api/workers/<id>/models/<model>` answers 409). The "of about N MB" figure is a rough size
+from the catalogue, and the amount arrived is counted from the worker's own cache folder, so the count can pass 100%.
 
 Nothing unloads a model to free memory: a worker asked for all three keeps all three loaded.
 
@@ -123,11 +130,12 @@ worker download its model (about 390 MB), then render both chapters.
 | `WORKER_TOKEN` | none | If set, every request needs `Authorization: Bearer <token>`. **Without it anyone who can reach the port can use the worker, so set one** |
 | `WORKER_NAME` | none | A name reported in `/health` |
 | `WORKER_ACCEPTS` | `both` | `phonemes` makes the worker behave like a phone (see below) |
-| `PRELOAD_MODELS` | `none` | Models to load at start, comma separated, if you want them ready before the first request |
+| `WORKER_MODELS` | `all` | The models this worker serves, comma separated (`nano`, `turbo`, `english`), or `all`. Also `--models` |
+| `PRELOAD_MODELS` | `none` | Models, among the served ones, to download and load at start instead of on first use |
 | `DATA_DIR` | `/data` in Docker, else `./data` | Where it keeps cloned voices and its voice lists |
 | `HF_HOME`, `SUPERTONIC_CACHE_DIR` | defaults | Where models are downloaded |
 | `TTS_THREADS`, `TTS_PRECISION` | as for the server | How the models run |
-| `TTS_DEVICE` | `cpu` | `cpu`, `auto`, `cuda`, `directml`, `coreml` or `openvino` (see [Using a GPU](#using-a-gpu)); the command-line flag `--device` overrides it |
+| `TTS_DEVICE` | `auto` | `auto`, `cpu`, `cuda`, `directml`, `coreml` or `openvino` (see [Using a GPU](#using-a-gpu)); the command-line flag `--device` overrides it |
 
 The worker needs ffmpeg for cloned voices. A worker is not a server: it has no page, no library and no queue.
 
@@ -145,13 +153,21 @@ from the saved copy, and a sample fails with a clear message after the same 20 s
 
 ## Using a GPU
 
-By default the models run on the CPU. To use a GPU, set the device on the machine that runs the models (a worker, or
-this server for "This server"):
+The worker picks the device for each model. By default (`auto`) it uses a GPU it finds (CUDA, then DirectML) for the
+models that can use one, and the CPU for the rest, so nobody has to know which model runs where. Which devices a model
+can use is in the catalogue: **Nano is CPU only**, **Turbo** may use CUDA or DirectML, **English** may use CUDA,
+DirectML or CoreML. A machine with an NVIDIA GPU therefore runs Turbo on the GPU and Nano on the CPU at the same time,
+and a Mac runs both Vietnamese models on the CPU. A model that fails its first run on the GPU is loaded again on the
+CPU. Settings shows the device each model really runs on. Only English on CoreML has been run on real hardware here;
+CUDA and DirectML for Turbo and English are tried at run time and fall back, not tested.
+
+To force the choice, set the device on the machine that runs the models (a worker, or this server for "This server"). A
+named device that is not available stops the start with the reason; the models that cannot use it still run on the CPU:
 
 | `TTS_DEVICE` (or `--device`) | Uses | ONNX Runtime package it needs |
 |---|---|---|
-| `cpu` (default) | The CPU | `onnxruntime` |
-| `auto` | A GPU if one is available (CUDA, then DirectML), otherwise the CPU | whichever you installed |
+| `auto` (default) | A GPU if one is available (CUDA, then DirectML), otherwise the CPU | whichever you installed |
+| `cpu` | The CPU for every model | `onnxruntime` |
 | `cuda` | An NVIDIA GPU | `onnxruntime-gpu`, plus CUDA 12 and cuDNN 9 on the machine |
 | `directml` | Any GPU on Windows (NVIDIA, AMD, Intel) | `onnxruntime-directml` |
 | `coreml` | Apple silicon | the ordinary macOS `onnxruntime` |
@@ -244,5 +260,6 @@ is off while such a worker is the voice-list source. Try it without a phone by s
 ## Worker protocol
 
 A worker is anything that implements the endpoints in [HTTP API](api.md#voice-worker-protocol-version-3). The current
-protocol is **3**; the server also understands 1 and 2. Protocol 3 added `GET /models` and
-`POST /models/{model}/ensure`; protocol 2 added `POST /infer` and `capabilities`.
+protocol is **4**; the server also understands 1, 2 and 3. Protocol 4 removed `POST /models/{model}/ensure` (the worker
+fetches models itself) and added `offered` and `device` to each model in `GET /models`; protocol 3 added `GET /models`;
+protocol 2 added `POST /infer` and `capabilities`.

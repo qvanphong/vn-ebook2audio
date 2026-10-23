@@ -14,7 +14,7 @@ services:
       TTS_TEMPERATURE: "0.8"
       # TTS_DIALOG_VOICE: "Mỹ Duyên"   # a second voice for quoted speech
       # TTS_PRECISION: fp32           # int8 is smaller and faster on CPUs with VNNI
-      # TTS_DEVICE: cpu               # cpu (default), auto, cuda, directml: see docs/workers.md (needs a GPU image)
+      # TTS_DEVICE: auto              # auto (default), cpu, cuda, directml: see docs/workers.md (needs a GPU image)
       READ_TITLES: "1"
       # PRELOAD_MODELS: nano          # by default nothing is downloaded or loaded until it is needed
       # Or send speech to a voice worker instead (can also be chosen in the Settings tab):

@@ -10,6 +10,7 @@ import shutil
 import tempfile
 import threading
 from pathlib import Path
+from typing import Sequence
 
 import numpy as np
 import uvicorn
@@ -19,8 +20,8 @@ from pydantic import BaseModel
 from . import accel, catalog, tts
 from .config import Settings
 
-PROTOCOL = 3
-SUPPORTED_PROTOCOLS = (1, 2, 3)
+PROTOCOL = 4
+SUPPORTED_PROTOCOLS = (1, 2, 3, 4)
 MAX_TEXT_CHARS = 6000
 INFER_MODELS = ("nano",)  # what can be run from phonemes alone
 
@@ -43,9 +44,13 @@ class Synthesis(BaseModel):
 
 
 def create_worker_app(pool: tts.ModelPool, default_model: str, token: str | None = None,
-                      accepts: str = "both", name: str | None = None) -> FastAPI:
-    """accepts="phonemes" makes this worker behave like a phone: it only runs neural networks on phonemes."""
+                      accepts: str = "both", name: str | None = None, offered: Sequence[str] | None = None) -> FastAPI:
+    """accepts="phonemes" makes this worker behave like a phone: it only runs neural networks on phonemes.
+    `offered` is the worker's own choice of models to serve (None: all of them). The worker fetches and loads them
+    itself, the first time a request needs one or at start; the server only ever asks for audio."""
     text_ok = accepts != "phonemes"
+    serves = set(tts.MODEL_MODES if offered is None else offered)
+    clone_model = default_model if default_model in serves else next((m for m in tts.MODEL_MODES if m in serves and m not in tts.NO_CLONE), None)
     def auth(authorization: str | None = Header(None)) -> None:
         if token and not hmac.compare_digest(authorization or "", f"Bearer {token}"):
             raise HTTPException(401, "missing or wrong worker token")
@@ -56,12 +61,18 @@ def create_worker_app(pool: tts.ModelPool, default_model: str, token: str | None
         return HTTPException(503, {"loading": exc.error is None, "message": str(exc)})
 
     def can_run(model: str) -> bool:
-        return text_ok or model in INFER_MODELS
+        return model in serves and (text_ok or model in INFER_MODELS)
+
+    def serve(model: str) -> None:
+        if model in tts.MODEL_MODES and not can_run(model):
+            raise HTTPException(501, f"this worker does not serve the {model} model")
 
     def model_states() -> dict:
-        """What this machine has of each model. `supported` is whether it could ever run it (the package is
-        installed, and a phone-style worker only runs what it can run from phonemes)."""
-        return {m: {**s, "supported": bool(s["supported"]) and can_run(m)} for m, s in pool.status().items()}
+        """What this machine has of each model. `offered` is whether the worker chose to serve it, and `supported`
+        whether it could run it at all (the package is installed, and a phone-style worker only runs what it can run
+        from phonemes). `device` is where the model runs on this machine, which the worker decides."""
+        return {m: {**s, "offered": m in serves, "supported": bool(s["supported"]) and can_run(m)}
+                for m, s in pool.status().items()}
 
     @app.get("/health")
     def health():
@@ -70,23 +81,12 @@ def create_worker_app(pool: tts.ModelPool, default_model: str, token: str | None
 
     @app.get("/models")
     def models():
-        """Protocol 3: every model this server knows, and whether this machine has it, is fetching it, or can run it."""
+        """Every model this server knows, and whether this machine serves it, has it, is fetching it, and on which device."""
         return {"models": model_states()}
-
-    @app.post("/models/{model}/ensure", status_code=202)
-    def ensure_model(model: str):
-        """Protocol 3: make sure this machine has the model downloaded and loaded. Returns at once; poll GET /models.
-        Asking again while it is already on its way, or once it is ready, changes nothing."""
-        if model not in tts.MODEL_MODES:
-            raise HTTPException(400, f"unknown model {model!r}, expected one of {sorted(tts.MODEL_MODES)}")
-        state = model_states()[model]
-        if not state["supported"]:
-            raise HTTPException(501, f"this worker cannot run the {model} model")
-        pool.start_loading(model)
-        return {"model": model, **model_states()[model]}
 
     @app.get("/voices")
     def voices(model: str):
+        serve(model)
         try:
             result = pool.voices(model)
             return {"voices": result.voices, "ready": result.ready, "error": result.error}
@@ -102,6 +102,7 @@ def create_worker_app(pool: tts.ModelPool, default_model: str, token: str | None
             raise HTTPException(501, "this worker only accepts phonemes: use /infer")
         if len(request.text) > MAX_TEXT_CHARS:
             raise HTTPException(400, f"text is longer than {MAX_TEXT_CHARS} characters")
+        serve(request.model)
         try:
             pool.ensure(request.model)
             audio = pool.synthesize(request.model, request.text, request.voice, request.temperature)
@@ -118,6 +119,7 @@ def create_worker_app(pool: tts.ModelPool, default_model: str, token: str | None
         """One already-phonemised chunk (protocol 2): mono 16-bit PCM, trimmed and faded, rate in X-Sample-Rate."""
         if len(request.phonemes) > MAX_TEXT_CHARS:
             raise HTTPException(400, f"phonemes are longer than {MAX_TEXT_CHARS} characters")
+        serve(request.model)
         try:
             pool.ensure(request.model)
             audio = pool.infer_phonemes(request.model, request.phonemes, request.voice, steps=request.steps,
@@ -134,14 +136,14 @@ def create_worker_app(pool: tts.ModelPool, default_model: str, token: str | None
 
     @app.post("/clones", status_code=201)
     def add_clone(name: str = Form(...), file: UploadFile = File(...)):
-        if not text_ok:
+        if not text_ok or clone_model is None:
             raise HTTPException(501, "this worker cannot clone voices")
         with tempfile.TemporaryDirectory() as d:
             upload = Path(d) / "upload"
             with upload.open("wb") as out:
                 shutil.copyfileobj(file.file, out)
             try:
-                pool.add_clone(name, upload, default_model)
+                pool.add_clone(name, upload, clone_model)
             except tts.CloneError as exc:
                 raise HTTPException(400, str(exc))
             except tts.ModelLoading as exc:
@@ -159,7 +161,8 @@ def create_worker_app(pool: tts.ModelPool, default_model: str, token: str | None
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     ap = argparse.ArgumentParser(description="A voice worker for ebook2audio.")
-    ap.add_argument("--device", help="cpu (default), auto, cuda, directml, coreml or openvino; overrides TTS_DEVICE")
+    ap.add_argument("--device", help="auto (default), cpu, cuda, directml, coreml or openvino; overrides TTS_DEVICE")
+    ap.add_argument("--models", help="the models this worker serves, for example nano,turbo (default: all); overrides WORKER_MODELS")
     args = ap.parse_args()
     catalog.configure_cache_env()
     settings = Settings.from_env()
@@ -170,9 +173,12 @@ def main() -> None:
     token = os.environ.get("WORKER_TOKEN") or None
     pool = tts.ModelPool.local(settings.threads, settings.precision, tts.CloneStore(settings.voices_dir), settings.voice_cache)
     try:
-        models = catalog.parse_model_list(os.environ.get("PRELOAD_MODELS"))  # passive by default: the server says what it needs
+        offered = catalog.parse_offered(args.models or os.environ.get("WORKER_MODELS"))
+        models = catalog.parse_model_list(os.environ.get("PRELOAD_MODELS"))  # fetched at start; the rest on first use
     except ValueError as exc:
         raise SystemExit(str(exc))
+    if (left := [m for m in models if m not in offered]):
+        raise SystemExit(f"PRELOAD_MODELS names {', '.join(left)}, which WORKER_MODELS does not serve")
 
     def preload() -> None:
         for model in models:
@@ -189,7 +195,7 @@ def main() -> None:
     if accepts not in ("both", "phonemes"):
         raise SystemExit("WORKER_ACCEPTS must be both or phonemes")
     name = os.environ.get("WORKER_NAME") or None
-    uvicorn.run(create_worker_app(pool, settings.model, token, accepts, name), host="0.0.0.0",
+    uvicorn.run(create_worker_app(pool, settings.model, token, accepts, name, offered), host="0.0.0.0",
                 port=int(os.environ.get("WORKER_PORT", "8780")), log_level="info")
 
 

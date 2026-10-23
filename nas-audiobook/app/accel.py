@@ -1,8 +1,10 @@
 """Which hardware runs the speech models: the CPU (the default) or a GPU.
 
 The model libraries create their ONNX Runtime sessions themselves and mostly ask for the CPU only, so choosing a GPU
-means changing the providers they ask for. `configure()` does that once at start, for every session created after it,
-and `status()` says what was asked for and what the sessions really got, so a GPU that is silently not in use shows up.
+means changing the providers they ask for. `configure()` picks the machine's accelerator once at start. Each model
+then decides for itself: `load_checked()` gives a model the accelerator only when the model can use it (the catalogue
+says which devices each model supports), so a machine with a GPU still runs a CPU-only model on the CPU. `status()` says
+what was asked for and what each model really got, so a GPU that is silently not in use shows up.
 
 A GPU also needs the matching ONNX Runtime package: `onnxruntime-gpu` (NVIDIA CUDA) or `onnxruntime-directml`
 (any GPU on Windows). The ordinary `onnxruntime` package can only use the CPU (and CoreML on a Mac)."""
@@ -12,6 +14,7 @@ import logging
 import subprocess
 import sys
 import threading
+from typing import Sequence
 
 log = logging.getLogger("accel")
 
@@ -33,8 +36,14 @@ class DeviceError(ValueError):
 
 
 _lock = threading.Lock()
-_state: dict = {"requested": "cpu", "wanted": [], "active": set(), "fallback": False, "patched": False,
-                "suspended": False}
+_state: dict = {"requested": "cpu", "device": "cpu", "wanted": [], "active": set(), "fallback": False,
+                "patched": False, "models": {}}
+_local = threading.local()  # while a model loads: the providers it may use, and the ones its sessions really got
+
+
+def device_of(provider: str | None) -> str:
+    """The device name (`cuda`, `directml`, ...) that a provider belongs to; `cpu` for the CPU or anything unknown."""
+    return next((name for name, providers in DEVICES.items() if provider in providers), "cpu")
 
 
 def parse_device(raw: str | None) -> str:
@@ -134,7 +143,7 @@ def configure(device: str | None, ort=None, verify: bool = True) -> dict:
     if ort is None:
         if requested == "cpu":
             with _lock:
-                _state.update(requested="cpu", wanted=[], active=set(), fallback=False)
+                _state.update(requested="cpu", device="cpu", wanted=[], active=set(), fallback=False, models={})
             return status()
         import onnxruntime as ort  # noqa: PLC0415
     wanted = providers_for(requested, list(ort.get_available_providers()))
@@ -152,7 +161,8 @@ def configure(device: str | None, ort=None, verify: bool = True) -> dict:
         except Exception as exc:  # noqa: BLE001: the GPU check below says whether it matters
             log.warning("could not preload the CUDA libraries: %s", exc)
     with _lock:
-        _state.update(requested=requested, wanted=wanted, active=set(), fallback=False)
+        _state.update(requested=requested, device=device_of(wanted[0]) if wanted else "cpu", wanted=wanted,
+                      active=set(), fallback=False, models={})
         if wanted and not _state["patched"]:
             _patch(ort)
             _state["patched"] = True
@@ -168,38 +178,70 @@ def _patch(ort) -> None:
 
     class Session(original):
         def __init__(self, path_or_bytes, sess_options=None, providers=None, provider_options=None, **kwargs):
-            wanted = [] if _state["suspended"] else list(_state["wanted"])
+            override = getattr(_local, "wanted", None)  # set while a model loads, to what that model may use
+            wanted = list(_state["wanted"] if override is None else override)
             asked = list(providers or [])
             if wanted and asked in ([], [CPU]):  # a library that only asked for the CPU, or nothing
                 providers, provider_options = [*wanted, CPU], None
             super().__init__(path_or_bytes, sess_options, providers=providers, provider_options=provider_options, **kwargs)
+            seen = getattr(_local, "seen", None)
+            if seen is not None:
+                seen.append((self.get_providers() or [CPU])[0])
             if wanted and providers and providers[0] == wanted[0]:
                 _record(self.get_providers(), wanted[0])
 
     ort.InferenceSession = Session
 
 
-def load_checked(load, check):
-    """Load a model, and when a GPU was asked for prove it works by running `check` on it. A GPU provider can accept a
-    graph at load time and then fail when it runs ("error in building plan"), so a model that fails the check is loaded
-    again on the CPU instead of failing every request. The fallback is reported in `status()`."""
-    handle = load()
-    if not _state["wanted"]:
+def _load_with(load, wanted: list[str]):
+    """Run `load` with only `wanted` offered to the sessions it creates. Returns the handle and the first provider each
+    of those sessions really got."""
+    _local.wanted, _local.seen = wanted, []
+    try:
+        return load(), list(_local.seen)
+    finally:
+        _local.wanted = _local.seen = None
+
+
+def _note(model: str | None, provider: str, fallback: bool, note: str | None = None) -> None:
+    if model is not None:
+        with _lock:
+            _state["models"][model] = {"device": device_of(provider), "provider": provider, "fallback": fallback,
+                                       "note": note}
+
+
+def device_for(accelerators: Sequence[str] | None) -> str:
+    """The device a model will be tried on: this machine's accelerator if the model supports it, else the CPU."""
+    device = _state["device"]
+    return device if device != "cpu" and (accelerators is None or device in accelerators) else "cpu"
+
+
+def load_checked(load, check, model: str | None = None, accelerators: Sequence[str] | None = None):
+    """Load a model on the device that suits it. The machine's accelerator is offered only to a model that supports it
+    (`accelerators`; None means any), so a CPU-only model never even tries the GPU. When the accelerator is used, prove
+    it works by running `check` on the model: a GPU provider can accept a graph at load time and then fail when it runs
+    ("error in building plan"), so a model that fails the check is loaded again on the CPU instead of failing every
+    request. What each model got, and any fallback, is reported in `status()`."""
+    if device_for(accelerators) == "cpu":
+        handle, _ = _load_with(load, [])
+        _note(model, CPU, False, f"the {model} model runs on the CPU only (it cannot use {_state['device']})"
+              if _state["wanted"] else None)
         return handle
+    wanted = list(_state["wanted"])
+    handle, seen = _load_with(load, wanted)
     try:
         check(handle)
+        got = seen[0] if seen else CPU
+        _note(model, got, got != wanted[0], None if got == wanted[0] else f"asked for {_state['device']} but got the CPU")
         return handle
     except Exception as exc:  # noqa: BLE001: any failure of the model on this hardware means "use the CPU"
         log.warning("a model failed its first run on %s (%s: %s); loading it on the CPU instead",
-                    ", ".join(_state["wanted"]), type(exc).__name__, str(exc)[:160])
+                    ", ".join(wanted), type(exc).__name__, str(exc)[:160])
     with _lock:
-        _state["fallback"], _state["suspended"] = True, True
-        _state["active"] = {CPU}
-    try:
-        return load()
-    finally:
-        with _lock:
-            _state["suspended"] = False
+        _state["fallback"] = True
+    _note(model, CPU, True, f"it failed its first run on {_state['device']}, so it runs on the CPU")
+    handle, _ = _load_with(load, [])
+    return handle
 
 
 def _record(got: list[str], wanted: str) -> None:
@@ -214,10 +256,12 @@ def _record(got: list[str], wanted: str) -> None:
 
 
 def status() -> dict:
-    """What was asked for, which providers the sessions created so far actually use, and whether any fell back."""
+    """What was asked for, the accelerator this machine picked, which providers the sessions created so far actually
+    use, whether any fell back, and per model the device it runs on."""
     with _lock:
-        active = sorted(_state["active"])
         wanted = list(_state["wanted"])
-        return {"requested": _state["requested"], "providers": wanted or [CPU], "active": active or None,
-                "using_gpu": bool(wanted) and bool(active) and not _state["fallback"] and active[0] != CPU,
-                "fallback": _state["fallback"]}
+        models = {m: dict(e) for m, e in _state["models"].items()}
+        active = sorted({e["provider"] for e in models.values()} or _state["active"])
+        return {"requested": _state["requested"], "device": _state["device"], "providers": wanted or [CPU],
+                "active": active or None, "using_gpu": bool(wanted) and any(p != CPU for p in active),
+                "fallback": _state["fallback"], "models": {m: {k: v for k, v in e.items() if k != "provider"} for m, e in models.items()}}

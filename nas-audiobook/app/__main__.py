@@ -39,7 +39,7 @@ def build_engine(settings: Settings) -> EngineController:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     ap = argparse.ArgumentParser(description="ebook2audio server.")
-    ap.add_argument("--device", help="cpu (default), auto, cuda, directml, coreml or openvino; overrides TTS_DEVICE")
+    ap.add_argument("--device", help="auto (default), cpu, cuda, directml, coreml or openvino; overrides TTS_DEVICE")
     args = ap.parse_args()
     catalog.configure_cache_env()
     settings = Settings.from_env()

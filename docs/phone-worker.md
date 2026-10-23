@@ -84,9 +84,9 @@ of the server wrapper (HTTP, wake locks) around the model.
 |---|---|---|
 | Run the networks | ONNX Runtime for Android, CPU provider (avoid NNAPI at first: operator coverage and accuracy are uncertain) | Low |
 | The loop and voices | The Kotlin port from the experiment; preset voices are JSON (a 192-number speaker vector and 50×256 style numbers each) | Low to medium |
-| HTTP server | A foreground service with an embedded server (Ktor or NanoHTTPD), the token check and protocol 3 (`/health`, `/models`, `/models/{id}/ensure`, `/voices`, `/infer`) | Medium |
+| HTTP server | A foreground service with an embedded server (Ktor or NanoHTTPD), the token check and protocol 4 (`/health`, `/models`, `/voices`, `/infer`) | Medium |
 | Staying alive | Foreground service, wake lock, Wi-Fi lock, battery-optimisation exemption, thermal handling. This is where phone workers usually fail | Medium to high |
-| Models on the phone | Download on first run through `ensure`, or ship quantised copies | Medium |
+| Models on the phone | Download on first use by the phone itself, or ship quantised copies | Medium |
 | Cloning on the phone | Needs three more graphs (about 110 MB), a speaker encoder with filterbank features, a resampler, a denoiser. Skip at first; report `clone: false` | High |
 | Turbo | Later, only if Nano is not good enough | High |
 

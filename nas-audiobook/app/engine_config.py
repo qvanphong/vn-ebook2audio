@@ -25,6 +25,10 @@ class ConfigError(ValueError):
     pass
 
 
+class WorkerOwnsModels(ConfigError):
+    pass
+
+
 @dataclass(frozen=True)
 class EngineConfig:
     local_enabled: bool = True
@@ -143,22 +147,17 @@ class EngineController:
         return [nodes[i] for i in dict.fromkeys(selected) if i in nodes]
 
     def fetch_model(self, node_id: str, model: str) -> dict:
-        """Ask one machine to get a model now (download it if it lacks it, then load it), without waiting.
-        The same thing a conversion does before it starts, so a model can be fetched ahead of time."""
+        """Have this server download and load a model now, without waiting. A worker is not asked: it decides which
+        models it serves and fetches them itself (WORKER_MODELS, PRELOAD_MODELS, or on first use)."""
         node = self._nodes.get(node_id)
         if node is None:
             raise ConfigError("that machine is not in the list")
         if model not in catalog.CATALOG:
             raise ConfigError(f"unknown model {model!r}")
-        backend = node.pool.backend
-        if hasattr(backend, "request"):  # a worker
-            if backend.models() is not None:
-                backend.request("POST", f"/models/{model}/ensure", retry_loading=False)
-            else:  # an older worker starts loading when asked for its voices
-                backend.request("GET", "/voices", params={"model": model}, retry_loading=False)
-            self._probes.pop(node.id, None)
-        else:
-            node.pool.start_loading(model)
+        if node.config is not None:
+            raise WorkerOwnsModels(f"{node.label} chooses and downloads its own models: set WORKER_MODELS and "
+                                   "PRELOAD_MODELS on that worker")
+        node.pool.start_loading(model)
         return {"id": node.id, "model": model}
 
     def remove_clone(self, name: str) -> bool:

@@ -30,7 +30,7 @@ class Settings:
     voice: str | None = None
     dialog_voice: str | None = None
     precision: str = "fp32"
-    device: str = "cpu"                     # cpu, auto, cuda, directml, coreml or openvino (see accel.py)
+    device: str = "auto"                    # auto, cpu, cuda, directml, coreml or openvino (see accel.py)
     temperature: float = 0.8
     threads: int = 0
     backend: str = "local"
@@ -111,7 +111,7 @@ class Settings:
             voice=e.get("TTS_VOICE") or None,
             dialog_voice=e.get("TTS_DIALOG_VOICE") or None,
             precision=e.get("TTS_PRECISION", "fp32"),
-            device=e.get("TTS_DEVICE", "cpu").strip().lower() or "cpu",
+            device=e.get("TTS_DEVICE", "auto").strip().lower() or "auto",
             temperature=float(e.get("TTS_TEMPERATURE", "0.8")),
             threads=int(e.get("TTS_THREADS", "0")) or available_cpus(),
             backend=e.get("TTS_BACKEND", "local"),

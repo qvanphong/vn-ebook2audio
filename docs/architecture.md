@@ -42,7 +42,7 @@
 | `onnxpaths.py` | Lets newer ONNX Runtime load models whose weights are symlinked elsewhere in the Hugging Face cache |
 | `engine_config.py` | `EngineController`: the machine list, its saved form, live status |
 | `fleet.py` | `Node`, `WorkerConfig`, and the `probe()` of a worker |
-| `remote.py` | `RemoteBackend`: talks to a worker (retries, ensure-model, phoneme path) |
+| `remote.py` | `RemoteBackend`: talks to a worker (retries, waiting for the worker's model, phoneme path) |
 | `worker.py` | The voice worker's own HTTP app |
 | `frontend.py` | The text frontend (chunks, phonemes, joining) for phoneme-only workers |
 | `library.py` | Library folders and manifests |
@@ -83,7 +83,7 @@ So the service can start with no model on disk, and even with no speech packages
 ### A lane
 
 ```
-prepare:  pool.prepare(voice settings)   download/load the model (ensure_model on a worker), check or upload voices
+prepare:  pool.prepare(voice settings)   download/load the model (a worker fetches its own model; the server waits with await_model), check or upload voices
 loop:     take the next pending chapter     (longest first when there are several lanes)
           for each clip: check for cancel, synthesize, add the pause
           encode to .m4a, add to the library, record progress

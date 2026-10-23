@@ -73,9 +73,11 @@ class RemoteBackend:
             raise WorkerError(f"the voice worker said {response.status_code}: {_detail(response)}")
         return response.json()["models"]
 
-    def ensure_model(self, model: str, report=lambda _message: None) -> None:
-        """Ask the worker to get the model (download it if it does not have it, then load it) and wait until it can
-        run it, saying what it is doing on the way. A worker without protocol 3 is left to load() below."""
+    def await_model(self, model: str, report=lambda _message: None) -> None:
+        """Wait until the worker can run the model, saying what it is doing on the way. The worker decides which models
+        it serves and fetches them itself; this only asks for the model's voices (which is what makes a worker start
+        fetching one it has not got yet) and watches the progress it reports. A worker older than protocol 3 is left
+        to load() below."""
         if self.models() is None:
             return
         label = catalog.CATALOG[model].label
@@ -86,6 +88,8 @@ class RemoteBackend:
             state = states.get(model) if states else None
             if state is None:
                 raise WorkerError(f"the worker does not know the {model} model")
+            if state.get("offered") is False:
+                raise WorkerError(f"the worker does not serve the {label} model")
             if state["ready"]:
                 return
             if state["state"] == "error" and asked:
@@ -93,19 +97,28 @@ class RemoteBackend:
             if not state["supported"]:
                 raise WorkerError(f"the worker cannot run the {model} model")
             if not asked:
-                self.request("POST", f"/models/{model}/ensure")
+                self._nudge(model)
                 asked = True
             if state["state"] == "downloading":
                 done = state.get("bytes") or 0
-                report(f"downloading the {label} model on the worker"
+                report(f"the worker is downloading the {label} model"
                        + (f" ({done // 1_000_000} of about {state['size_mb']} MB)" if done else f" (about {state['size_mb']} MB)"))
             elif state["state"] == "loading":
                 report(f"the worker has the {label} model and is loading it")
             else:
-                report(f"asking the worker for the {label} model")
+                report(f"waiting for the worker to get the {label} model")
             if time.monotonic() > deadline:
                 raise WorkerError(f"the worker did not finish getting the {label} model in time")
             self._sleep(self.poll_seconds)
+
+    def _nudge(self, model: str) -> None:
+        """Ask for the model's voices. A worker that serves the model starts getting it and answers 503 until it can."""
+        try:
+            response = self.client.request("GET", "/voices", params={"model": model}, headers=self.headers)
+        except httpx.TransportError as exc:
+            raise WorkerError(f"cannot reach the voice worker at {self.url} ({type(exc).__name__})") from exc
+        if response.status_code not in (200, 503):
+            raise WorkerError(f"the voice worker said {response.status_code}: {_detail(response)}")
 
     def load(self, model: str) -> "RemoteHandle":
         health = self.request("GET", "/health").json()

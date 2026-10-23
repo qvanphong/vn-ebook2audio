@@ -17,8 +17,9 @@ services:
       WORKER_TOKEN: ${WORKER_TOKEN:?set WORKER_TOKEN to a secret the main server will use}
       WORKER_NAME: ${WORKER_NAME:-voice-worker}
       # TTS_THREADS: "4"              # threads per model; the default is every CPU
-      # TTS_DEVICE: cpu               # cpu (default), auto, cuda, directml: see docs/workers.md (needs a GPU image)
-      # PRELOAD_MODELS: nano,english  # load models at start instead of on demand
+      # TTS_DEVICE: auto              # auto (default), cpu, cuda, directml: see docs/workers.md (needs a GPU image)
+      # WORKER_MODELS: nano,english   # the models this worker serves (default: all)
+      # PRELOAD_MODELS: nano,english  # download and load them at start instead of on first use
     volumes:
       - worker-data:/data
 

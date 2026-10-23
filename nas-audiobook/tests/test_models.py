@@ -1,4 +1,4 @@
-"""A passive worker: the server asks for a model and voice, and the worker downloads and loads what it lacks first."""
+"""Workers own their models: a worker serves the models it chose, fetches what it lacks itself, and says how it is doing."""
 import threading
 import time
 
@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from app import catalog
 from app.api import create_app
-from app.engine_config import ConfigError, EngineConfig, EngineConfigStore, EngineController
+from app.engine_config import ConfigError, EngineConfig, EngineConfigStore, EngineController, WorkerOwnsModels
 from app.fleet import Node, WorkerConfig, probe
 from app.jobs import JobStore, Runner
 from app.library import md5_file
@@ -52,9 +52,9 @@ class Downloading(FakeBackend):
         return super().load(model)
 
 
-def worker_with(backend, tmp_path, accepts="both"):
+def worker_with(backend, tmp_path, accepts="both", offered=None):
     pool = ModelPool(backend, None, tmp_path / "w.json")
-    return TestClient(create_worker_app(pool, "nano", TOKEN, accepts), base_url="http://worker"), pool
+    return TestClient(create_worker_app(pool, "nano", TOKEN, accepts, offered=offered), base_url="http://worker"), pool
 
 
 def wait(predicate, seconds=3):
@@ -167,7 +167,7 @@ def test_preparing_says_whether_it_will_download_or_only_load():
 
 def test_a_worker_lists_every_model_and_what_it_can_do_with_each(tmp_path):
     c, pool = worker_with(Downloading(have=True), tmp_path)
-    assert c.get("/health", headers=auth()).json()["protocol"] == PROTOCOL == 3
+    assert c.get("/health", headers=auth()).json()["protocol"] == PROTOCOL == 4
     models = c.get("/models", headers=auth()).json()["models"]
     assert set(models) == {"nano", "turbo", "english"}
     assert models["nano"]["state"] == "downloaded" and models["nano"]["supported"] is True and models["nano"]["size_mb"] == 280
@@ -178,7 +178,6 @@ def test_a_phone_style_worker_says_which_models_it_cannot_run(tmp_path):
     c, _ = worker_with(Downloading(), tmp_path, accepts="phonemes")
     models = c.get("/models", headers=auth()).json()["models"]
     assert {m: s["supported"] for m, s in models.items()} == {"nano": True, "turbo": False, "english": False}
-    assert c.post("/models/english/ensure", headers=auth()).status_code == 501
 
 
 def test_a_worker_without_the_package_says_it_does_not_support_the_model(tmp_path, monkeypatch):
@@ -188,21 +187,58 @@ def test_a_worker_without_the_package_says_it_does_not_support_the_model(tmp_pat
 
     c, _ = worker_with(NoEnglish(), tmp_path)
     assert c.get("/models", headers=auth()).json()["models"]["english"]["supported"] is False
-    assert c.post("/models/english/ensure", headers=auth()).status_code == 501
 
 
-def test_asking_a_worker_for_a_model_starts_the_download_and_asking_twice_changes_nothing(tmp_path):
+def test_a_worker_fetches_a_model_itself_when_asked_for_it_and_asking_twice_changes_nothing(tmp_path):
     backend = Downloading()
     c, pool = worker_with(backend, tmp_path)
-    first = c.post("/models/english/ensure", headers=auth())
-    assert first.status_code == 202 and first.json()["model"] == "english"
+    assert c.get("/voices", params={"model": "english"}, headers=auth()).status_code == 503
     assert wait(lambda: c.get("/models", headers=auth()).json()["models"]["english"]["state"] == "downloading")
-    assert c.post("/models/english/ensure", headers=auth()).status_code == 202
+    assert c.get("/voices", params={"model": "english"}, headers=auth()).status_code == 503
     backend.release.set()
     assert wait(lambda: c.get("/models", headers=auth()).json()["models"]["english"]["state"] == "ready")
-    assert c.post("/models/english/ensure", headers=auth()).status_code == 202
     assert backend.loads == ["english"]
-    assert c.post("/models/klingon/ensure", headers=auth()).status_code == 400
+
+
+def test_the_server_has_no_way_to_tell_a_worker_to_download(tmp_path):
+    c, _ = worker_with(Downloading(), tmp_path)
+    assert c.post("/models/english/ensure", headers=auth()).status_code in (404, 405)
+
+
+# --- the worker decides which models it serves ----------------------------------------------
+
+def test_a_worker_serves_only_the_models_it_was_given_and_says_so(tmp_path):
+    backend = Downloading(have=True)
+    c, pool = worker_with(backend, tmp_path, offered=["nano"])
+    models = c.get("/models", headers=auth()).json()["models"]
+    assert {m: (s["offered"], s["supported"]) for m, s in models.items()} == {
+        "nano": (True, True), "turbo": (False, False), "english": (False, False)}
+    assert c.get("/voices", params={"model": "english"}, headers=auth()).status_code == 501
+    assert c.post("/synthesize", json={"model": "turbo", "text": "Xin chào"}, headers=auth()).status_code == 501
+    assert c.post("/infer", json={"model": "english", "phonemes": "a"}, headers=auth()).status_code == 501
+    assert backend.loads == []  # a model it does not serve is never fetched
+    assert c.get("/voices", params={"model": "nano"}, headers=auth()).status_code in (200, 503)
+
+
+def test_the_server_will_not_use_a_worker_for_a_model_it_does_not_serve(tmp_path):
+    c, _ = worker_with(Downloading(have=True), tmp_path, offered=["nano"])
+    with pytest.raises(WorkerError, match="does not serve the English · Supertonic model"):
+        remote(c).await_model("english")
+
+
+def test_a_worker_that_serves_nothing_cloneable_refuses_clones(tmp_path):
+    c, _ = worker_with(Downloading(have=True), tmp_path, offered=["english"])
+    r = c.post("/clones", data={"name": "me"}, files={"file": ("a.wav", b"x")}, headers=auth())
+    assert r.status_code == 501
+
+
+def test_a_worker_models_setting_names_models_or_all():
+    assert catalog.parse_offered(None) == catalog.parse_offered("all") == ["nano", "turbo", "english"]
+    assert catalog.parse_offered("Nano, english") == ["nano", "english"]
+    with pytest.raises(ValueError, match="unknown model"):
+        catalog.parse_offered("nano,klingon")
+    with pytest.raises(ValueError, match="names no model"):
+        catalog.parse_offered("none")
 
 
 def test_a_worker_loads_nothing_until_it_is_asked(tmp_path):
@@ -229,10 +265,10 @@ def test_the_server_waits_for_the_download_and_reports_each_stage(tmp_path):
             backend.release.set()
         time.sleep(0.02)
 
-    remote(c, sleep=sleep).ensure_model("english", messages.append)
+    remote(c, sleep=sleep).await_model("english", messages.append)
     assert pool.ready("english")
-    assert messages[0].startswith("asking the worker for the English · Supertonic model")
-    assert any("downloading the English · Supertonic model on the worker (120 of about 390 MB)" == m for m in messages)
+    assert messages[0].startswith("waiting for the worker to get the English · Supertonic model")
+    assert any("the worker is downloading the English · Supertonic model (120 of about 390 MB)" == m for m in messages)
     assert backend.loads == ["english"]
 
 
@@ -241,7 +277,7 @@ def test_a_model_the_worker_already_has_goes_straight_through(tmp_path):
     c, pool = worker_with(backend, tmp_path)
     pool.get("nano")
     messages = []
-    remote(c).ensure_model("nano", messages.append)
+    remote(c).await_model("nano", messages.append)
     assert messages == [] and backend.loads == ["nano"]
 
 
@@ -249,14 +285,14 @@ def test_a_worker_that_has_it_on_disk_only_has_to_load_it(tmp_path):
     backend = Downloading(have=True)
     c, pool = worker_with(backend, tmp_path)
     messages = []
-    remote(c, poll_seconds=0).ensure_model("nano", messages.append)
+    remote(c, poll_seconds=0).await_model("nano", messages.append)
     assert pool.ready("nano") and not any("downloading" in m for m in messages)
 
 
 def test_a_worker_that_cannot_do_it_or_fails_is_reported_with_the_reason(tmp_path):
     c, _ = worker_with(Downloading(), tmp_path, accepts="phonemes")
     with pytest.raises(WorkerError, match="cannot run the english model"):
-        remote(c).ensure_model("english")
+        remote(c).await_model("english")
 
     class Broken(Downloading):
         def load(self, model):
@@ -264,14 +300,14 @@ def test_a_worker_that_cannot_do_it_or_fails_is_reported_with_the_reason(tmp_pat
 
     c2, _ = worker_with(Broken(have=True), tmp_path)
     with pytest.raises(WorkerError, match="could not load the Vietnamese · Nano model: .*no space left"):
-        remote(c2).ensure_model("nano")
+        remote(c2).await_model("nano")
 
 
 def test_the_wait_has_a_limit(tmp_path):
     backend = Downloading()
     c, _ = worker_with(backend, tmp_path)
     with pytest.raises(WorkerError, match="did not finish getting"):
-        remote(c, load_timeout=0.05, sleep=lambda _s: time.sleep(0.03)).ensure_model("english")
+        remote(c, load_timeout=0.05, sleep=lambda _s: time.sleep(0.03)).await_model("english")
     backend.release.set()
 
 
@@ -292,7 +328,7 @@ def test_an_older_worker_still_works_through_the_voice_request(tmp_path):
     c, pool = worker_with(backend, tmp_path)
     b = remote(OldWorker(c))
     assert b.models() is None
-    b.ensure_model("nano")  # nothing to do: load() polls /voices as before
+    b.await_model("nano")  # nothing to do: load() polls /voices as before
     handle = ModelPool(b, None, tmp_path / "n.json").get("nano")
     assert pool.ready("nano") and len(handle.infer("Xin chào")) > 0
 
@@ -354,7 +390,8 @@ def test_the_api_lists_the_catalog_and_fetches_a_model_on_a_machine(settings):
     c = api(settings, ctl)
     cat = {m["id"]: m for m in c.get("/api/models").json()}
     assert cat["english"] == {"id": "english", "label": "English · Supertonic", "language": "en",
-                              "description": "Clear and fast, 10 voices, no cloning", "size_mb": 390}
+                              "description": "Clear and fast, 10 voices, no cloning", "size_mb": 390,
+                              "accelerators": ["cuda", "directml", "coreml"]}
     r = c.post("/api/workers/local/models/english")
     assert r.status_code == 202 and r.json() == {"id": "local", "model": "english"}
     assert wait(lambda: ctl.pool.status()["english"]["state"] == "downloading")
@@ -364,15 +401,17 @@ def test_the_api_lists_the_catalog_and_fetches_a_model_on_a_machine(settings):
     assert c.post("/api/workers/local/models/klingon").status_code == 404
 
 
-def test_fetching_on_a_worker_sends_the_request_to_that_worker(settings, tmp_path):
+def test_a_worker_is_never_told_to_fetch_a_model_it_chooses_its_own(settings, tmp_path):
     wc, wpool = worker_with(Downloading(have=True), tmp_path)
     ctl = EngineController(EngineConfigStore(settings.engine_config), EngineConfig(),
                            lambda w: ModelPool(Downloading(have=True) if w is None else remote(wc), None,
                                                settings.voice_cache.with_name("x.json")))
     ctl.apply(True, [{"url": "http://worker", "token": TOKEN, "name": "Laptop"}])
     wid = ctl.config.workers[0].id
-    assert ctl.fetch_model(wid, "nano") == {"id": wid, "model": "nano"}
-    assert wait(lambda: wpool.ready("nano"))
+    with pytest.raises(WorkerOwnsModels, match="Laptop chooses and downloads its own models"):
+        ctl.fetch_model(wid, "nano")
+    assert api(settings, ctl).post(f"/api/workers/{wid}/models/nano").status_code == 409
+    assert not wpool.ready("nano")
 
 
 # --- a conversion that has to wait for a download ------------------------------------------
@@ -385,7 +424,7 @@ def test_a_conversion_shows_the_download_then_starts_and_finishes(settings, stor
     def sleep(_s):
         job = store.get(job_id)
         seen.extend(w["detail"] for w in job.public()["workers"] if w["detail"])
-        if len([d for d in seen if d.startswith("downloading")]) >= 2:
+        if len([d for d in seen if "downloading" in d]) >= 2:
             backend.release.set()
         time.sleep(0.02)
 
@@ -397,7 +436,7 @@ def test_a_conversion_shows_the_download_then_starts_and_finishes(settings, stor
     Runner(settings, store, ctl).run_one(store.claim_next())
     done = store.get(job_id)
     assert done.state is State.DONE, done.error
-    assert any(d.startswith("asking the worker for the English") for d in seen) or any(d.startswith("downloading") for d in seen)
+    assert any(d.startswith("waiting for the worker to get the English") for d in seen) or any("downloading" in d for d in seen)
     assert any("120 of about 390 MB" in d for d in seen)
     assert backend.loads == ["english"] and wpool.ready("english")
     assert backend.calls and backend.calls[0][0] == "english" and backend.calls[0][2] == "Mỹ Duyên"

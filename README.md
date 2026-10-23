@@ -29,8 +29,9 @@ computers you add as **voice workers**, or on all of them at once, sharing each 
   manifest. Chapters are playable while the rest is still being made, a stopped job resumes where it left off, and
   one click builds a single chaptered **M4B**.
 - **Share the work across machines.** Add laptops, desktops or a second server as voice workers. Each takes the next
-  free chapter, so faster machines do more. A worker starts empty: it **downloads the model a job needs on demand**, and
-  a worker that fails is dropped without stopping the book.
+  free chapter, so faster machines do more. A worker **chooses its own models and device** (a GPU for the models
+  that can use one, the CPU for the rest) and downloads what it serves itself; a worker that fails is dropped
+  without stopping the book.
 - **Calibre-Web built in.** Browse your Calibre-Web library from the page, preview a book there, and send it straight
   into Convert, with Calibre-Web's own cover.
 - **Runs in Docker or directly.** Two images (server and worker), and the service starts with no model loaded. An
@@ -132,7 +133,7 @@ DRM-free.
 | [Book processing](docs/book-processing.md) | Splitting methods and text preparation |
 | [Models and voices](docs/voices-and-models.md) | Models, voices, cloning, English |
 | [The library](docs/library.md) | Folders, file names, tags, M4B |
-| [Voice workers](docs/workers.md) | Sharing a book, passive workers, protocol |
+| [Voice workers](docs/workers.md) | Sharing a book, worker-owned models, protocol |
 | [Calibre-Web](docs/calibre-web.md) | Browse, preview, import |
 | [Configuration](docs/configuration.md) | Every setting and file |
 | [HTTP API](docs/api.md) | Server and worker endpoints |

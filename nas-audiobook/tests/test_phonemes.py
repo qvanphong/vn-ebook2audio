@@ -44,7 +44,7 @@ def test_health_reports_what_the_worker_can_do(tmp_path):
     phone, _ = phone_worker(tmp_path, "phonemes")
     assert both.get("/health", headers=auth()).json()["capabilities"] == {"synthesize": True, "infer": ["nano"], "clone": True}
     h = phone.get("/health", headers=auth()).json()
-    assert h["protocol"] == PROTOCOL == 3 and h["capabilities"] == {"synthesize": False, "infer": ["nano"], "clone": False}
+    assert h["protocol"] == PROTOCOL == 4 and h["capabilities"] == {"synthesize": False, "infer": ["nano"], "clone": False}
 
 
 def test_infer_returns_one_chunk_of_pcm_and_passes_the_options_through(tmp_path):

@@ -192,7 +192,13 @@ class LocalBackend:
 
     def load(self, model: str):
         onnxpaths.install()
-        return accel.load_checked(lambda: self._load(model), lambda handle: handle.infer(SMOKE_TEXT[model]))
+        return accel.load_checked(lambda: self._load(model), lambda handle: handle.infer(SMOKE_TEXT[model]), model,
+                                  catalog.CATALOG[model].accelerators)
+
+    def device(self, model: str) -> dict:
+        """Where this model runs, or will be tried: its own record once loaded, else the plan for this machine."""
+        done = accel.status()["models"].get(model)
+        return done or {"device": accel.device_for(catalog.CATALOG[model].accelerators), "fallback": False, "note": None}
 
     def _load(self, model: str):
         if model == "english":
@@ -253,7 +259,7 @@ class ModelPool:
                 state = "downloaded" if on_disk else "absent"
             arrived = max(0, self._ask("bytes_on_disk", m, 0) - self._baseline.get(m, 0)) if state == "downloading" else 0
             out[m] = {"ready": ready, "loading": loading, "error": error, "downloaded": on_disk, "state": state,
-                      "supported": self._ask("supported", m, True), "bytes": arrived,
+                      "supported": self._ask("supported", m, True), "bytes": arrived, "device": self._ask("device", m),
                       "size_mb": catalog.CATALOG[m].size_mb}
         return out
 
@@ -330,9 +336,9 @@ class ModelPool:
             report(f"downloading the {info.label} model (about {info.size_mb} MB), then loading it")
         else:
             report(f"loading the {info.label} model")
-        ensure = getattr(self.backend, "ensure_model", None)
-        if ensure is not None:
-            ensure(spec.model, report)
+        wait = getattr(self.backend, "await_model", None)
+        if wait is not None:
+            wait(spec.model, report)
         handle = self.get(spec.model)
         names = list(dict.fromkeys(n for n in (spec.voice, spec.dialog_voice) if n))
         if not names:

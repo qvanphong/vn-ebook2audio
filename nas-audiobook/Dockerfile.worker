@@ -1,5 +1,5 @@
 # A voice worker: runs the speech models and answers the server's requests. It has no page, library or queue.
-# It starts empty: the server tells it which model a job needs, and it downloads and loads that model on demand.
+# It chooses its own models (WORKER_MODELS, default all) and device, and downloads them itself when first needed.
 #
 #   docker build -f Dockerfile.worker -t ebook2audio-worker .
 #   docker run -d -p 8780:8780 -e WORKER_TOKEN=choose-a-secret -v worker-data:/data ebook2audio-worker

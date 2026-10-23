@@ -31,16 +31,17 @@ def fake_ort(available, gpu_works=True):
 
 @pytest.fixture(autouse=True)
 def clean_state():
-    accel._state.update(requested="cpu", wanted=[], active=set(), fallback=False, patched=False)
+    accel._state.update(requested="cpu", device="cpu", wanted=[], active=set(), fallback=False, patched=False, models={})
     yield
-    accel._state.update(requested="cpu", wanted=[], active=set(), fallback=False, patched=False)
+    accel._state.update(requested="cpu", device="cpu", wanted=[], active=set(), fallback=False, patched=False, models={})
 
 
 def test_the_default_is_the_cpu_and_changes_nothing():
     ort = fake_ort([CUDA, CPU])
     original = ort.InferenceSession
     assert configure(None, ort, verify=False)["requested"] == "cpu" and ort.InferenceSession is original
-    assert status() == {"requested": "cpu", "providers": [CPU], "active": None, "using_gpu": False, "fallback": False}
+    assert status() == {"requested": "cpu", "device": "cpu", "providers": [CPU], "active": None, "using_gpu": False,
+                        "fallback": False, "models": {}}
 
 
 def test_names_are_case_insensitive_and_unknown_ones_are_refused_with_the_choices():
@@ -113,11 +114,11 @@ def test_a_cpu_choice_after_a_gpu_choice_stops_rewriting():
 
 
 def test_the_setting_comes_from_the_environment(tmp_path, monkeypatch):
-    assert Settings(data_dir=tmp_path).device == "cpu"
+    assert Settings(data_dir=tmp_path).device == "auto"
     monkeypatch.setenv("TTS_DEVICE", " CUDA ")
     assert Settings.from_env().device == "cuda"
     monkeypatch.setenv("TTS_DEVICE", "")
-    assert Settings.from_env().device == "cpu"
+    assert Settings.from_env().device == "auto"
 
 
 def test_the_worker_reports_its_device_so_the_server_can_show_it(tmp_path):
@@ -178,7 +179,7 @@ def test_a_model_that_fails_its_first_run_on_the_gpu_is_reloaded_on_the_cpu_and_
             raise RuntimeError("Error in building plan")
 
     with caplog.at_level(logging.WARNING, logger="accel"):
-        handle = accel.load_checked(load, check)
+        handle = accel.load_checked(load, check, "turbo", ["cuda"])
     assert [s.asked for s in sessions] == [[CUDA, CPU], [CPU]] and handle is sessions[1]
     s = status()
     assert s["fallback"] is True and s["using_gpu"] is False
@@ -200,8 +201,62 @@ def test_the_local_backend_proves_each_model_with_a_short_first_run(monkeypatch)
 
     monkeypatch.setattr(tts.LocalBackend, "_load", lambda self, model: Handle())
     tts.LocalBackend(1, "fp32").load("english")
-    tts.LocalBackend(1, "fp32").load("nano")
+    tts.LocalBackend(1, "fp32").load("turbo")
     assert ran == ["Hello.", "Xin chào."]
+
+
+# --- each model picks its own device -----------------------------------------------------------
+
+def load_on(ort, model, accelerators):
+    def load():
+        return ort.InferenceSession(f"{model}.onnx", providers=[CPU])
+
+    return accel.load_checked(load, lambda h: None, model, accelerators)
+
+
+def test_a_model_that_cannot_use_the_gpu_runs_on_the_cpu_while_one_that_can_uses_it():
+    ort = fake_ort([CUDA, CPU])
+    configure("cuda", ort, verify=False)
+    nano = load_on(ort, "nano", [])
+    turbo = load_on(ort, "turbo", ["cuda", "directml"])
+    assert nano.asked == [CPU] and turbo.asked == [CUDA, CPU]
+    s = status()
+    assert s["device"] == "cuda" and s["using_gpu"] is True and s["fallback"] is False
+    assert s["models"]["nano"]["device"] == "cpu" and "runs on the CPU only" in s["models"]["nano"]["note"]
+    assert s["models"]["turbo"] == {"device": "cuda", "fallback": False, "note": None}
+
+
+def test_the_device_a_model_will_be_tried_on_is_known_before_it_loads():
+    configure("cuda", fake_ort([CUDA, CPU]), verify=False)
+    assert accel.device_for([]) == "cpu" and accel.device_for(["coreml"]) == "cpu"
+    assert accel.device_for(["cuda"]) == "cuda" and accel.device_for(None) == "cuda"
+    configure("cpu", fake_ort([CUDA, CPU]), verify=False)
+    assert accel.device_for(["cuda"]) == "cpu"
+
+
+def test_one_model_falling_back_does_not_take_the_gpu_from_another():
+    ort = fake_ort([CUDA, CPU])
+    configure("cuda", ort, verify=False)
+
+    def load(model):
+        return lambda: ort.InferenceSession(f"{model}.onnx", providers=[CPU])
+
+    def bad(handle):
+        raise RuntimeError("Error in building plan")
+
+    accel.load_checked(load("english"), lambda h: None, "english", ["cuda"])
+    accel.load_checked(load("turbo"), bad, "turbo", ["cuda"])
+    s = status()
+    assert s["models"]["english"]["device"] == "cuda" and s["models"]["turbo"]["device"] == "cpu"
+    assert s["models"]["turbo"]["fallback"] is True and s["using_gpu"] is True and s["fallback"] is True
+
+
+def test_the_catalogue_says_which_models_can_use_which_device():
+    from app import catalog
+
+    assert catalog.CATALOG["nano"].accelerators == ()
+    assert "cuda" in catalog.CATALOG["turbo"].accelerators and "cuda" in catalog.CATALOG["english"].accelerators
+    assert all(d in accel.DEVICES for info in catalog.CATALOG.values() for d in info.accelerators)
 
 
 # --- trying the hardware before relying on it ---------------------------------------------------

@@ -18,12 +18,17 @@ class ModelInfo:
     description: str
     size_mb: int            # a rough download size, for the page
     package: str            # the Python package that runs it
+    accelerators: tuple[str, ...] = ()  # the GPU devices (see accel.DEVICES) it can run on; it always runs on the CPU
 
 
 CATALOG: dict[str, ModelInfo] = {
+    # Nano is CPU only (CUDA and CoreML do not run its graph). The others are tried on the accelerator and fall back
+    # to the CPU if their first run fails. Only English on CoreML has been run on real hardware.
     "nano": ModelInfo("nano", "Vietnamese · Nano", "vi", "Fast, lighter, good for long books", 280, "vieneu"),
-    "turbo": ModelInfo("turbo", "Vietnamese · Turbo", "vi", "Best Vietnamese quality, about 3x slower", 620, "vieneu"),
-    "english": ModelInfo("english", "English · Supertonic", "en", "Clear and fast, 10 voices, no cloning", 390, "supertonic"),
+    "turbo": ModelInfo("turbo", "Vietnamese · Turbo", "vi", "Best Vietnamese quality, about 3x slower", 620, "vieneu",
+                       ("cuda", "directml")),
+    "english": ModelInfo("english", "English · Supertonic", "en", "Clear and fast, 10 voices, no cloning", 390, "supertonic",
+                         ("cuda", "directml", "coreml")),
 }
 
 NANO_REPO = "pnnbao-ump/VieNeu-TTS-v3-Nano"
@@ -46,6 +51,16 @@ def parse_model_list(raw: str | None) -> list[str]:
     if unknown:
         raise ValueError(f"PRELOAD_MODELS names unknown model(s) {', '.join(unknown)}; choose from {', '.join(CATALOG)} or none")
     return list(dict.fromkeys(names))
+
+
+def parse_offered(raw: str | None) -> list[str]:
+    """A WORKER_MODELS value as a list of model ids. Empty, missing or `all` means every model there is."""
+    if (raw or "").strip().lower() in ("", "all"):
+        return list(CATALOG)
+    names = parse_model_list(raw)
+    if not names:
+        raise ValueError("WORKER_MODELS names no model; choose from " + ", ".join(CATALOG) + " or all")
+    return names
 
 
 def configure_cache_env() -> None:
@@ -124,4 +139,4 @@ def bytes_on_disk(model: str, precision: str = "fp32") -> int:
 def describe(model: str, precision: str = "fp32") -> dict:
     info = CATALOG[model]
     return {"id": info.id, "label": info.label, "language": info.language, "description": info.description,
-            "size_mb": info.size_mb}
+            "size_mb": info.size_mb, "accelerators": list(info.accelerators)}

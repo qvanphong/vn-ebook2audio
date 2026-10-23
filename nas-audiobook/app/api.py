@@ -15,7 +15,7 @@ from .books.epub_cover import sniff as sniff_image
 from .calibre import CalibreClient, CalibreConfig, CalibreError, CalibreStore, normalize_url as calibre_url
 from .books import MIN_CHAPTER_CHARS, ParamError, default_selection
 from .config import Settings
-from .engine_config import ConfigError, EngineController
+from .engine_config import ConfigError, EngineController, WorkerOwnsModels
 from .jobs import JobStore
 from .library import Library, LibraryError, md5_file
 from .model import ACTIVE, Cover, Plan, Voice
@@ -285,9 +285,11 @@ def create_app(settings: Settings, store: JobStore, pool, uploads: UploadStore |
 
     @app.post("/api/workers/{node_id}/models/{model}", status_code=202)
     def fetch_model(node_id: str, model: str):
-        """Have a machine download and load a model now, so a later conversion finds it ready."""
+        """Have this server download and load a model now, so a later conversion finds it ready. Workers choose their own."""
         try:
             return engine_or_404().fetch_model(node_id, model)
+        except WorkerOwnsModels as exc:
+            raise HTTPException(409, str(exc))
         except ConfigError as exc:
             raise HTTPException(404, str(exc))
 

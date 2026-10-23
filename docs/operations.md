@@ -24,8 +24,8 @@ To move to another machine, copy `data/` and start the service there; models dow
 1. Stop the service. Jobs in progress go back to `queued` and resume when it starts again (finished chapters are kept).
 2. Pull the new code and, for a native install, `pip install -r requirements.txt -r requirements-engine.txt`.
 3. Start it again. An older `engine.json` and an older job database are read and upgraded in place.
-4. **Restart workers too** if a release changed the worker protocol. The server still understands older workers (1 and
-   2) but only protocol 3 workers can be told to download models.
+4. **Restart workers too** if a release changed the worker protocol. The server still understands older workers (1 to
+   3). A protocol 4 worker chooses and fetches its own models (`WORKER_MODELS`, `PRELOAD_MODELS`) and its own device.
 
 A symptom of forgetting to restart: the page shows a new section but its calls answer `{"detail": "Not Found"}`. The
 page is read from disk on every load; the API code is only read at start.

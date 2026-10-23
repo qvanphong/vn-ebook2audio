@@ -91,6 +91,7 @@
   .mmodel button { margin-top:6px; }
   .mmodel.ready { border-color:var(--ok); } .mmodel.ready .mstate { color:var(--ok); }
   .mmodel.error { border-color:var(--err); } .mmodel.error .mstate { color:var(--err); }
+  .mmodel.off { opacity:.6; }
   .mmodel.busy { border-color:var(--accent); } .mmodel.busy .mstate { color:var(--accent); }
   .dot { display:inline-block; width:9px; height:9px; border-radius:50%; background:var(--muted); margin:0 6px 0 4px; }
   .dot.on { background:var(--ok); } .dot.off { background:var(--err); }
@@ -173,7 +174,7 @@
     <div id="runOn" class="hidden" style="margin-top:14px">
       <label style="margin:0 0 4px">Run on <button type="button" class="small" id="runOnRefresh" style="margin-left:6px">Refresh</button></label>
       <div class="muted">Chapters are shared out: each machine takes the next chapter as soon as it is free, so faster ones do more.
-        A machine that does not have the chosen model or voice gets it first.</div>
+        A machine that does not have the chosen model downloads it itself first; a worker only takes part if it serves that model.</div>
       <div id="runOnList"></div>
     </div>
     <div id="engineLine" class="muted" style="margin-top:8px"></div>
@@ -884,14 +885,15 @@ function renderMachines() {
       <div class="mstat" data-key="${i}"></div><div class="mmodels" data-key="${i}"></div></div>`).join("");
   paintStatus();
 }
-/* what hardware a machine runs its models on, and whether a GPU that was asked for is really in use */
+/* the hardware a machine picked for its models; each model row says which device that model really runs on */
 function deviceText(d) {
   const name = (p) => p.replace("ExecutionProvider", "");
-  if (d.fallback) return { text: `asked for ${d.requested} but running on the CPU`, bad: true };
-  if (d.using_gpu) return { text: `GPU (${name(d.active[0])})` };
-  if (d.requested !== "cpu") return { text: `${d.requested} requested, confirmed once a model loads` };
+  if (d.fallback) return { text: `asked for ${d.requested}, but some models fell back to the CPU`, bad: true };
+  if (d.using_gpu) return { text: `GPU (${name(d.active.find((p) => p !== "CPUExecutionProvider"))}) for the models that support it` };
+  if (d.requested !== "cpu" && d.device && d.device !== "cpu") return { text: `${d.device}, confirmed once a model loads` };
   return { text: "CPU" };
 }
+const deviceWord = (v) => !v.device ? "" : v.device.device === "cpu" ? "CPU" : v.device.device.toUpperCase();
 function describeLive(m) {
   if (!m.online) return { text: `Offline: ${m.error || "no answer"}`, cls: "bad" };
   const models = m.kind === "local" || Object.values(m.models || {}).some((v) => v.state) ? "" :
@@ -908,14 +910,18 @@ function modelChips(m) {
   return Object.entries(m.models || {}).filter(([, v]) => v.state).map(([id, v]) => {
     const mb = v.size_mb ? ` (about ${v.size_mb} MB)` : "";
     let word, cls = "", button = "";
-    if (!v.supported) { word = "cannot run here"; }
+    if (v.offered === false) { word = "not served by this worker"; cls = "off"; }
+    else if (!v.supported) { word = "cannot run here"; }
     else if (v.state === "ready") { word = "ready"; cls = "ready"; }
     else if (v.state === "loading") { word = "loading…"; cls = "busy"; }
     else if (v.state === "downloading") { word = `downloading${v.bytes ? ` ${Math.round(v.bytes / 1e6)} of ${v.size_mb} MB` : "…"}`; cls = "busy"; }
     else if (v.state === "error") { word = "failed: " + (v.error || ""); cls = "error"; button = "Retry"; }
     else if (v.state === "downloaded") { word = "on disk"; button = "Load"; }
     else { word = "not downloaded"; button = `Download${mb}`; }
-    return `<div class="mmodel ${cls}"><div class="mname">${esc(catalogLabel(id))}</div><div class="mstate">${esc(word)}</div>${button ? `<button type="button" class="small" data-fetch="${esc(m.id)}|${esc(id)}">${esc(button)}</button>` : ""}</div>`;
+    if (m.kind !== "local") button = "";  /* a worker decides and fetches its own models */
+    const dev = deviceWord(v), note = v.device && v.device.note ? ` title="${esc(v.device.note)}"` : "";
+    if (dev && v.supported && v.offered !== false) word += ` · ${dev}`;
+    return `<div class="mmodel ${cls}"${note}><div class="mname">${esc(catalogLabel(id))}</div><div class="mstate">${esc(word)}</div>${button ? `<button type="button" class="small" data-fetch="${esc(m.id)}|${esc(id)}">${esc(button)}</button>` : ""}</div>`;
   }).join("");
 }
 $("machines").addEventListener("click", async (e) => {
@@ -987,19 +993,20 @@ function machineIssue(m) {
   const caps = m.capabilities || {}, model = $("model").value;
   if (caps.synthesize === false && !(caps.infer || []).includes(model)) return `cannot run the ${catalogLabel(model)} model`;
   const have = m.models && m.models[model];
+  if (have && have.offered === false) return `does not serve the ${catalogLabel(model)} model`;
   if (have && have.supported === false) return `cannot run the ${catalogLabel(model)} model (not installed there)`;
   const cloned = [sel.narrator(), sel.dialog()].filter(Boolean).some((id) => (state.voices.find((x) => x.id === id) || {}).cloned);
   return cloned && caps.clone === false ? "cannot use cloned voices" : null;
 }
 function machinePrep(m) {
   const model = $("model").value, have = m.models && m.models[model], name = catalogLabel(model);
-  if (!have) return `will get the ${name} model first`;
+  if (!have) return `gets the ${name} model first`;
   if (have.ready) return `${name} model ready`;
   const mb = have.size_mb ? ` (about ${have.size_mb} MB)` : "";
   if (have.state === "downloading") return `downloading the ${name} model${have.bytes ? ` (${Math.round(have.bytes / 1e6)} of ${have.size_mb} MB)` : ""}; the job starts when it is done`;
   if (have.state === "loading") return `loading the ${name} model; the job starts when it is ready`;
   if (have.state === "downloaded") return `has the ${name} model on disk and will load it first`;
-  return `does not have the ${name} model yet: will download it${mb} first, then start`;
+  return `does not have the ${name} model yet: it downloads it${mb} itself first, then the job starts`;
 }
 const machineChoice = () => (state.machines.length > 1 && state.runOn ? [...state.runOn] : null);
 function renderRunOn() {

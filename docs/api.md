@@ -113,16 +113,15 @@ has a `state` of `waiting`, `preparing` (with `detail` saying what: loading, dow
 `{model, voice, dialog_voice, english, temperature, read_titles, formats, min_chapter_chars, chars_per_second}`
 (`english` is what an English book starts with, or `null`).
 
-## Voice worker protocol (version 3)
+## Voice worker protocol (version 4)
 
 Anything that implements this is a worker, including a future phone app. If the worker has a token, every request
 needs `Authorization: Bearer <token>` (401 otherwise). The server also understands protocols 1 and 2.
 
 | Call | Meaning |
 |---|---|
-| `GET /health` | `{ok, protocol: 3, name, device, models: {<id>: {ready}}, capabilities: {synthesize, infer: ["nano"], clone}}`. `synthesize: false` means the worker takes phonemes only (use `/infer`) |
-| `GET /models` | `{models: {<id>: {state, ready, loading, downloaded, supported, bytes, size_mb, error}}}`. `state`: `ready` (in memory), `loading`, `downloading` (`bytes` arrived so far), `downloaded` (on disk, not loaded), `absent`, `error`. `supported: false` means it could never run this model |
-| `POST /models/{model}/ensure` | 202 at once; the worker downloads and loads the model in the background. Asking again changes nothing. 400 unknown model, 501 if not supported |
+| `GET /health` | `{ok, protocol: 4, name, device, models: {<id>: {ready}}, capabilities: {synthesize, infer: ["nano"], clone}}`. `synthesize: false` means the worker takes phonemes only (use `/infer`) |
+| `GET /models` | `{models: {<id>: {state, ready, loading, downloaded, offered, supported, device, bytes, size_mb, error}}}`. `state`: `ready` (in memory), `loading`, `downloading` (`bytes` arrived so far), `downloaded` (on disk, not loaded), `absent`, `error`. `offered: false` means the worker chose not to serve it (`/voices`, `/synthesize` and `/infer` answer 501); `supported: false` means it could never run it; `device` is `{device, fallback, note}`, where the worker runs the model (`cpu`, `cuda`, ...), its own decision |
 | `GET /voices?model=` | `{voices: [{id, label, cloned}], ready, error}`; 503 `{"detail": {"loading": true}}` while the model loads (asking also starts the load) |
 | `POST /synthesize` `{model, text, voice, temperature}` | Text in (up to 6,000 characters). Out: mono 16-bit little-endian PCM, sample rate in the `X-Sample-Rate` header (24000 Nano, 48000 Turbo, 44100 English). 501 if `synthesize` is false |
 | `POST /infer` `{model, phonemes, voice, steps, cfg, speed, seed}` | One already-phonemised chunk in, one chunk of audio out (PCM as above, trimmed and faded). Nano only; the worker does no text work |
@@ -130,4 +129,5 @@ needs `Authorization: Bearer <token>` (401 otherwise). The server also understan
 
 The server's side of the protocol: a request is retried on network errors and on 503 up to four times with growing
 pauses (about 20 seconds) before the machine is dropped from a job; before a machine's first chapter the server asks it
-for the job's model (`ensure`, then polls `/models`) and checks the job's voices.
+for the job's model (asks for its voices, which starts a download on a worker that serves it, then polls `/models`) and
+checks the job's voices. The server never tells a worker to download or which device to use.
