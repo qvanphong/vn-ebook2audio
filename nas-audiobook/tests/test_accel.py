@@ -266,8 +266,12 @@ def test_the_hand_written_model_is_a_valid_onnx_model_that_returns_its_input():
     import numpy as np
 
     session = ort.InferenceSession(accel.tiny_model(), providers=["CPUExecutionProvider"])
-    out = session.run(None, {"x": np.arange(4, dtype=np.float32)})[0]
-    assert out.tolist() == [0.0, 1.0, 2.0, 3.0]
+    out = session.run(None, {"x": np.arange(4, dtype=np.float32).reshape(1, 1, 4)})[0]
+    assert out.reshape(-1).tolist() == [0.0, 1.0, 2.0, 3.0]
+
+
+def test_the_hand_written_model_contains_a_convolution_so_a_missing_cudnn_is_caught_at_start():
+    assert b"Conv" in accel.tiny_model()
 
 
 def test_the_self_test_passes_for_a_provider_that_works():
@@ -371,3 +375,13 @@ def test_the_self_test_script_still_passes_on_the_cpu_with_the_preload_line_in_i
     pytest.importorskip("onnxruntime")
     assert accel.self_test(CPU) == (True, CPU)
     assert "preload_dlls" in accel.SELF_TEST
+
+
+def test_the_log_says_where_each_model_runs_so_the_libraries_own_cpu_wording_cannot_mislead(caplog):
+    ort = fake_ort([CUDA, CPU])
+    configure("cuda", ort, verify=False)
+    with caplog.at_level(logging.INFO, logger="accel"):
+        load_on(ort, "turbo", ["cuda"])
+        load_on(ort, "nano", [])
+    assert "the turbo model runs on CUDA" in caplog.text
+    assert "the nano model runs on the CPU (the nano model runs on the CPU only" in caplog.text

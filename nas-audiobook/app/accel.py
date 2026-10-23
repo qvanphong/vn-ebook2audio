@@ -11,6 +11,7 @@ A GPU also needs the matching ONNX Runtime package: `onnxruntime-gpu` (NVIDIA CU
 from __future__ import annotations
 
 import logging
+import struct
 import subprocess
 import sys
 import threading
@@ -90,14 +91,19 @@ def _bytes(number: int, data: bytes) -> bytes:
 
 
 def tiny_model() -> bytes:
-    """The smallest useful ONNX model, written by hand: y = Identity(x) on a float vector of 4. It lets the hardware be
-    tried without any real model, and without depending on the onnx package."""
+    """The smallest model that needs cuDNN, written by hand: y = Conv(x, w) with a 1x1 kernel of weight 1 on a float
+    tensor of shape [1, 1, 4], so it returns its input. A model without a convolution would pass on a machine that is
+    missing cuDNN and then fail on the first real model, which is what the start-up test is there to catch. It lets the
+    hardware be tried without any real model, and without depending on the onnx package."""
     def value_info(name: str) -> bytes:
-        dim = _bytes(1, _field(1, 0, _varint(4)))                                      # dim_value = 4
-        tensor = _field(1, 0, _varint(1)) + _bytes(2, dim)                             # elem_type float, shape [4]
+        dims = b"".join(_bytes(1, _field(1, 0, _varint(d))) for d in (1, 1, 4))      # dim_value of each dimension
+        tensor = _field(1, 0, _varint(1)) + _bytes(2, dims)                            # elem_type float, shape [1, 1, 4]
         return _bytes(1, name.encode()) + _bytes(2, _bytes(1, tensor))
-    node = _bytes(1, b"x") + _bytes(2, b"y") + _bytes(4, b"Identity")
-    graph = _bytes(1, node) + _bytes(2, b"tiny") + _bytes(11, value_info("x")) + _bytes(12, value_info("y"))
+    weight = (b"".join(_field(1, 0, _varint(d)) for d in (1, 1, 1)) + _field(2, 0, _varint(1))
+              + _bytes(8, b"w") + _bytes(9, struct.pack("<f", 1.0)))                   # dims, float, name, raw_data
+    node = _bytes(1, b"x") + _bytes(1, b"w") + _bytes(2, b"y") + _bytes(4, b"Conv")
+    graph = (_bytes(1, node) + _bytes(2, b"tiny") + _bytes(5, weight) + _bytes(11, value_info("x"))
+             + _bytes(12, value_info("y")))
     return _field(1, 0, _varint(8)) + _bytes(8, _field(2, 0, _varint(13))) + _bytes(7, graph)  # ir 8, opset 13
 
 
@@ -110,7 +116,7 @@ if wanted == "CUDAExecutionProvider" and hasattr(ort, "preload_dlls"):
     except Exception:
         pass
 session = ort.InferenceSession(bytes.fromhex(sys.argv[2]), providers=[wanted, "CPUExecutionProvider"])
-session.run(None, {"x": np.arange(4, dtype=np.float32)})
+session.run(None, {"x": np.arange(4, dtype=np.float32).reshape(1, 1, 4)})
 print("PROVIDER", session.get_providers()[0])
 """
 
@@ -208,6 +214,8 @@ def _note(model: str | None, provider: str, fallback: bool, note: str | None = N
         with _lock:
             _state["models"][model] = {"device": device_of(provider), "provider": provider, "fallback": fallback,
                                        "note": note}
+        log.info("the %s model runs on %s%s", model, device_of(provider).upper() if device_of(provider) != "cpu" else "the CPU",
+                 f" ({note})" if note else "")
 
 
 def device_for(accelerators: Sequence[str] | None) -> str:

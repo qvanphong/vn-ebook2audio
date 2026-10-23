@@ -220,6 +220,16 @@ on the `PATH`. With only the ordinary `onnxruntime` installed, `TTS_DEVICE=cuda`
 CUDAExecutionProvider ... Install onnxruntime-gpu instead of onnxruntime". The need for `onnxruntime-gpu` was reported
 from a Windows PC with an NVIDIA GPU; I did not run these steps on Windows myself, and no GPU speed was measured.
 
+**"cuDNN is unavailable ... LoadLibrary failed for cudnn64_9.dll"** in the worker's log means ONNX Runtime found the GPU
+but not cuDNN 9, which every convolution needs (Turbo has them). The worker then loads that model on the CPU and says
+"a model failed its first run on CUDAExecutionProvider ... loading it on the CPU instead". Fix it by installing cuDNN 9
+for CUDA 12 where the worker can find it: either `python -m pip install "onnxruntime-gpu[cuda,cudnn]"` into the worker's
+environment, or install NVIDIA's cuDNN 9 and add its `bin` folder to the `PATH`. Check with
+`python -c "import onnxruntime as ort; ort.preload_dlls(); print('ok')"` and `python -m pip list` (look for
+`nvidia-cudnn-cu12`). The start-up test includes a convolution for this reason: with the fix missing, `--device cuda`
+now stops at start with the same message, and `auto` uses the CPU for every model with a warning, instead of
+discovering it on the first chapter. I have not run this on Windows myself.
+
 The flag only changes which hardware the model libraries are told to use; the ONNX Runtime package decides what is
 possible, and the ordinary `onnxruntime` package can only use the CPU. The two packages cannot be installed together:
 `pip uninstall onnxruntime` first, then `pip install onnxruntime-gpu==1.22.0` (or `onnxruntime-directml`).
@@ -227,7 +237,7 @@ possible, and the ordinary `onnxruntime` package can only use the CPU. The two p
 **Asking for a device that is not there is an error at start**, with a message naming the package to install, so a
 worker never carries on silently on the CPU after you asked for a GPU. `auto` is the forgiving choice.
 
-**The GPU is tried before it is relied on.** At start, a GPU choice is tested on a tiny model in a separate process,
+**The GPU is tried before it is relied on.** At start, a GPU choice is tested on a tiny model (one convolution, so a missing cuDNN shows up) in a separate process,
 because a missing or broken GPU driver can crash the process outright instead of raising an error. If the test fails:
 an explicit choice (`cuda`, `directml`, ...) stops the start with the reason ("CUDAExecutionProvider could not start:
 the test process crashed (signal 11), which usually means no working GPU driver"), and `auto` logs a warning and uses
