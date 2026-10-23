@@ -1,42 +1,38 @@
-# A voice worker for Windows on an Intel or AMD x86_64 machine. Windows containers only: Docker Desktop must be in
-# Windows container mode, and the host must match the base image's Windows version (ltsc2022 needs Windows 11 or
-# Windows Server 2022). To run it from a Linux-container Docker Desktop instead, use Dockerfile.worker-linux-amd64.
+# A voice worker for a Windows PC with an Intel or AMD x86_64 processor. It uses the same base image as
+# Dockerfile.worker (python:3.12-slim, Linux). A Windows host runs it through Docker Desktop's default Linux
+# containers (WSL 2 backend). Docker Desktop must be in Linux container mode, which is the default.
+# Windows container mode cannot run this image.
 #
-#   docker build -f Dockerfile.worker-windows-amd64 -t ebook2audio-worker-windows .
-#   docker run -d -p 8780:8780 -e WORKER_TOKEN=choose-a-secret -v worker-data:C:\data ebook2audio-worker-windows
+#   docker build -f Dockerfile.worker-windows-amd64 -t ebook2audio-worker .
+#   docker run -d -p 8780:8780 -e WORKER_TOKEN=choose-a-secret -v worker-data:/data ebook2audio-worker
 #
 # Then add http://<this machine>:8780 and the token under Settings -> Voice machines on the server.
-# FFMPEG_URL is a full-build zip of ffmpeg for Windows x64. The default is the "latest" link; pin a version by
-# passing a specific zip, for example --build-arg FFMPEG_URL=https://.../ffmpeg-7.1-essentials_build.zip
-FROM python:3.12-windowsservercore-ltsc2022
+#
+# linux/amd64 pins the Intel/AMD build, so an ARM Mac builds the same image. Use Dockerfile.worker-linux-amd64 for
+# a Linux machine. Both files build the same image.
+FROM --platform=linux/amd64 python:3.12-slim
 
-ARG FFMPEG_URL=https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip
+# ffmpeg: converting a cloned voice's reference clip. libsndfile: reading audio.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg libsndfile1 \
+ && rm -rf /var/lib/apt/lists/*
 
-# ffmpeg is not in the Windows base image. Unpack it into C:\ffmpeg and put its bin folder on PATH.
-SHELL ["powershell", "-Command", "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue';"]
-RUN Invoke-WebRequest -Uri $env:FFMPEG_URL -OutFile C:\ffmpeg.zip; \
-    Expand-Archive -Path C:\ffmpeg.zip -DestinationPath C:\ffmpeg-tmp; \
-    Move-Item -Path (Get-ChildItem -Path C:\ffmpeg-tmp -Directory | Select-Object -First 1).FullName -Destination C:\ffmpeg; \
-    Remove-Item -Path C:\ffmpeg.zip, C:\ffmpeg-tmp -Recurse -Force
-SHELL ["cmd", "/S", "/C"]
-ENV PATH=C:\ffmpeg\bin;${PATH}
-
-WORKDIR C:\srv
+WORKDIR /srv
 COPY requirements.txt requirements-engine.txt ./
 RUN pip install --no-cache-dir -r requirements.txt -r requirements-engine.txt
 COPY app app
 
-# C:\data holds the downloaded models (so a restart or a new container does not download them again), the cloned
+# /data holds the downloaded models (so a restart or a new container does not download them again), the cloned
 # voices the server has sent, and the voice lists.
-ENV DATA_DIR=C:\data \
-    HF_HOME=C:\data\cache\hf \
+ENV DATA_DIR=/data \
+    HF_HOME=/data/cache/hf \
     WORKER_PORT=8780 \
     PYTHONUNBUFFERED=1
-VOLUME C:\data
+VOLUME /data
 EXPOSE 8780
 
 # /health needs the token when one is set, so the check sends it.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD ["python", "-c", "import os,urllib.request as u; t=os.environ.get('WORKER_TOKEN'); u.urlopen(u.Request('http://127.0.0.1:%s/health' % os.environ.get('WORKER_PORT', '8780'), headers={'Authorization': 'Bearer ' + t} if t else {}), timeout=3)"]
+  CMD python -c "import os,urllib.request as u; t=os.environ.get('WORKER_TOKEN'); u.urlopen(u.Request('http://127.0.0.1:%s/health' % os.environ.get('WORKER_PORT', '8780'), headers={'Authorization': 'Bearer ' + t} if t else {}), timeout=3)" || exit 1
 
 CMD ["python", "-m", "app.worker"]
