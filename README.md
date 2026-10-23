@@ -163,7 +163,7 @@ Not done or not verified:
   Nano and English) and a Pixel 8 Pro, not on a small NAS CPU. The images were run on arm64, not on an amd64 NAS.
 - **I have not listened** to the audio from every model; English was checked with a speech recogniser, which measures
   clarity, not how pleasant it sounds.
-- **One job at a time**; sharing happens between machines within a job. One dialogue voice per book, chosen from
+- **One book per machine at a time.** Several books can convert at once on different machines, and a machine that has finished its share of one book moves on to the next queued one. One dialogue voice per book, chosen from
   quotation marks, not per character.
 - **No Android worker app yet.** The experiment shows it is feasible for the Nano model; see
   [Phone worker](docs/phone-worker.md).

@@ -42,6 +42,18 @@ next unfinished chapter as soon as it is free, so a faster machine does more of 
 longest chapters go out first, which keeps the last chapter from being a long one on a slow machine; with one machine
 chapters go in book order.
 
+- **Several books at once.** A machine works on one book at a time and keeps it as long as that book has chapters for
+  it. When that book has none left for the machine (the last chapters are on slower machines) the machine moves on to
+  the next queued book while the others finish the first. Example: chapters 1 and 2 of book A go to a laptop and a
+  desktop; the desktop finishes chapter 1 and book B, queued for the desktop, starts there while the laptop is still
+  on chapter 2. The queue is the order the jobs were created in:
+  - A queued job starts as soon as at least one machine it may use is free. A younger job that needs only a free
+    machine starts before an older one that is waiting for a busy machine.
+  - A machine goes to the older job first. If a machine hands a chapter back to an older job (another machine
+    failed) while a younger job is using this one, the younger job lets go after its current chapter.
+  - A job that started on some of its machines shows the others as "waiting for another book to finish with this
+    machine" and joins on them when they are free. Cancelling stops that wait.
+  - A job whose book is already complete needs no machine, but still waits for one to be free before it is looked at.
 - A machine that is still loading a model does not hold anyone up; the others start and it joins when ready.
 - A chapter is made entirely by one machine. Each finished chapter is encoded and added to the library by the main
   server, whichever machine made it.

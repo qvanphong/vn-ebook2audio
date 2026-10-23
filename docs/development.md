@@ -55,7 +55,8 @@ answers OPDS requests.
 | `test_text.py` | Sentences, abbreviations, pauses, dialogue |
 | `test_processors.py`, `test_flow.py`, `test_titles.py`, `test_pdf.py`, `test_covers.py` | Splitting methods, the upload and preview flow, titles, PDF, cover finding |
 | `test_jobs.py`, `test_library_api.py`, `test_api.py` | Jobs (resume, cancel, overwrite), library routes, general API |
-| `test_pool.py`, `test_prepare.py`, `test_models.py` | Model pool, making a machine ready, what a machine has of each model, the passive worker |
+| `test_queue.py` | Several books at once: a machine moving on to the next book, order, cancelling while waiting |
+| `test_pool.py`, `test_prepare.py`, `test_models.py` | Model pool, making a machine ready, what a machine has of each model, worker-owned models |
 | `test_worker.py`, `test_phonemes.py`, `test_golden.py` | The worker protocol, phoneme-only workers, golden reference data |
 | `test_engine.py`, `test_balance.py`, `test_balance_api.py` | The machine list, chapters shared across machines |
 | `test_english.py`, `test_english_real.py` | The English model, language choice, abbreviations |

@@ -18,6 +18,7 @@ from . import ingest, m4b
 from .config import Settings
 from .library import AudioEntry, Library, md5_file
 from .model import ACTIVE, Book, Chapter, Plan, State, Voice
+from .scheduler import Gates
 from .text import TextOptions, load_pronunciations
 from .tts import Engine, EngineFactory, LaneError
 
@@ -134,12 +135,12 @@ class JobStore:
             self._db.execute(f"UPDATE jobs SET {cols} WHERE id=?", (*fields.values(), job_id))
             self._db.commit()
 
-    def claim_next(self) -> Job | None:
+    def claim_next(self, accept=None) -> Job | None:
+        """Start the oldest queued job, or the oldest one `accept(job)` says can start now."""
         with self._lock:
-            r = self._db.execute(
-                "SELECT * FROM jobs WHERE state=? ORDER BY created LIMIT 1", (State.QUEUED.value,)
-            ).fetchone()
-            if not r:
+            rows = self._db.execute("SELECT * FROM jobs WHERE state=? ORDER BY created", (State.QUEUED.value,)).fetchall()
+            r = next((r for r in rows if accept is None or accept(self._row(r))), None)
+            if r is None:
                 return None
             self._db.execute("UPDATE jobs SET state=?, updated=? WHERE id=?",
                              (State.RUNNING.value, time.time(), r["id"]))
@@ -278,11 +279,16 @@ class Progress:
 class Conversion:
     """Renders the chapters that still need audio, spread over the lanes. Each lane takes the next chapter as soon
     as it is free, so a faster machine simply does more of the book. A lane that fails (offline, missing voice)
-    hands its chapter back and drops out; the others carry on."""
+    hands its chapter back and drops out; the others carry on. Other books may be converting at the same time: a lane
+    only works while it holds its machine (see scheduler.py), and gives the machine up when this book has no chapter
+    left for it, so a machine that finished its share starts on the next book while slower ones finish this one."""
 
     def __init__(self, job: Job, book: Book, folder: Path, pending: list[int], lanes: Sequence[Lane], store: JobStore,
-                 library: Library, progress: Progress, names: dict[int, str]):
+                 library: Library, progress: Progress, names: dict[int, str], gates: Gates | None = None,
+                 started: threading.Event | None = None):
         self.job, self.book, self.folder, self.store, self.library = job, book, folder, store, library
+        self.gates, self.started = gates or Gates(), started
+        self.priority = (job.created, job.id)
         self.spec, self.plan = job.spec, job.plan
         self.sig = self.spec.signature()[:6]
         self.lanes, self.progress, self.names = list(lanes), progress, names
@@ -297,7 +303,11 @@ class Conversion:
         self.failures: dict[str, str] = {}
 
     def run(self) -> None:
-        threads = [threading.Thread(target=self._lane, args=(lane,), name=f"lane-{lane.id}", daemon=True)
+        # Take a place in line for every machine before any lane starts, so a book queued later cannot slip in front.
+        tickets = {lane.id: self.gates.gate(lane.id).queue(self.priority) for lane in self.lanes}
+        if self.started is not None:
+            self.started.set()
+        threads = [threading.Thread(target=self._lane, args=(lane, tickets[lane.id]), name=f"lane-{lane.id}", daemon=True)
                    for lane in self.lanes]
         for t in threads:
             t.start()
@@ -324,16 +334,24 @@ class Conversion:
         with self._cv:
             return not self._todo and self._active == 0
 
-    def _take(self) -> int | None:
+    def _work_to_do(self) -> bool:
+        """Wait until a chapter is waiting for a machine (True), or the book is finished or stopped (False). A busy
+        lane may still fail and hand its chapter back, so an idle lane keeps watching until everything is done."""
         with self._cv:
             while not self.stop.is_set():
                 if self._todo:
-                    self._active += 1
-                    return self._todo.popleft()
+                    return True
                 if self._active == 0:
-                    return None
-                self._cv.wait(0.2)  # a busy lane may still fail and hand its chapter back
-            return None
+                    return False
+                self._cv.wait(0.2)
+            return False
+
+    def _take_now(self) -> int | None:
+        with self._cv:
+            if self.stop.is_set() or not self._todo:
+                return None
+            self._active += 1
+            return self._todo.popleft()
 
     def _release(self, index: int | None = None) -> None:
         with self._cv:
@@ -351,38 +369,70 @@ class Conversion:
             self.stop.set()
             raise Cancelled()
 
+    def _stopped(self) -> bool:
+        """True once the job was stopped or cancelled; used while a lane waits for its machine."""
+        if self.stop.is_set():
+            return True
+        current = self.store.get(self.job.id)
+        if current is None or current.cancel:
+            self.cancelled = True
+            self.stop.set()
+            return True
+        return False
+
     def _lane_failed(self, lane: Lane, exc: BaseException) -> None:
         message = f"{type(exc).__name__}: {exc}" if not isinstance(exc, LaneError) else str(exc)
         self.failures[lane.id] = message
         log.warning("job %s: %s dropped out: %s", self.job.id, lane.label, message)
         self.progress.lane(lane.id, state="failed", detail="", error=message, chapter=None, clip_index=0, clip_count=0)
 
-    def _lane(self, lane: Lane) -> None:
+    def _lane(self, lane: Lane, ticket) -> None:
+        gate, engine = self.gates.gate(lane.id), None
         try:
-            self.progress.lane(lane.id, state="preparing", detail="connecting")
-            engine = lane.engine(self.spec, lambda message: self.progress.lane(lane.id, state="preparing", detail=message))
-        except Exception as exc:
+            while ticket is not None or self._work_to_do():
+                ticket = ticket or gate.queue(self.priority)
+                if not gate.free:
+                    self.progress.lane(lane.id, state="waiting", detail="waiting for another book to finish with this machine")
+                if not ticket.wait(self._stopped):
+                    return
+                try:
+                    if engine is None:
+                        try:
+                            self.progress.lane(lane.id, state="preparing", detail="connecting")
+                            engine = lane.engine(self.spec, lambda message: self.progress.lane(
+                                lane.id, state="preparing", detail=message))
+                        except Exception as exc:
+                            if not self.stop.is_set():
+                                self._lane_failed(lane, exc)
+                            return
+                    while (index := self._take_now()) is not None:
+                        try:
+                            self._render(lane, engine, index)
+                        except Cancelled:
+                            self._release()
+                            return
+                        except LaneError as exc:
+                            self._release(index)
+                            self._lane_failed(lane, exc)
+                            return
+                        except BaseException as exc:
+                            self.fatal = self.fatal or exc
+                            self.stop.set()
+                            self._release()
+                            return
+                        self._release()
+                        if gate.contended(self.priority):  # an older book wants this machine: let it in between chapters
+                            break
+                    if not self.stop.is_set():
+                        self.progress.lane(lane.id, state="idle", detail="")
+                finally:
+                    ticket.release()
+                    ticket = None
             if not self.stop.is_set():
-                self._lane_failed(lane, exc)
-            return
-        while (index := self._take()) is not None:
-            try:
-                self._render(lane, engine, index)
-            except Cancelled:
-                self._release()
-                return
-            except LaneError as exc:
-                self._release(index)
-                self._lane_failed(lane, exc)
-                return
-            except BaseException as exc:
-                self.fatal = self.fatal or exc
-                self.stop.set()
-                self._release()
-                return
-            self._release()
-        if not self.stop.is_set():
-            self.progress.lane(lane.id, state="done", detail="")
+                self.progress.lane(lane.id, state="done", detail="")
+        finally:
+            if ticket is not None:
+                ticket.release()
 
     def _render(self, lane: Lane, engine: Engine, index: int) -> None:
         chapter = self.book.chapters[index]
@@ -405,7 +455,19 @@ class Conversion:
         self.progress.chapter_done(lane.id, index, seconds, name)
 
 
-def process(job: Job, settings: Settings, store: JobStore, source: LaneSource, library: Library) -> Path:
+def process(job: Job, settings: Settings, store: JobStore, source: LaneSource, library: Library,
+            gates: Gates | None = None, started: threading.Event | None = None) -> Path:
+    """Convert one book. `started` is set once the job has its place in line for every machine it will use (or needs
+    none), so the runner can tell when the next book may be looked at."""
+    try:
+        return _process(job, settings, store, source, library, gates, started)
+    finally:
+        if started is not None:
+            started.set()
+
+
+def _process(job: Job, settings: Settings, store: JobStore, source: LaneSource, library: Library,
+             gates: Gates | None, started: threading.Event | None) -> Path:
     opts = TextOptions(job.read_titles, bool(job.dialog_voice), load_pronunciations(settings.pronunciations))
     plan = job.plan
     book = ingest.build_book(ingest.parse(Path(job.source), plan.processor, dict(plan.params)), plan, opts)
@@ -436,34 +498,45 @@ def process(job: Job, settings: Settings, store: JobStore, source: LaneSource, l
     if pending:
         if not lanes:
             raise NoWorkers("none of the machines chosen for this book exist any more; choose again in Convert or Settings")
-        Conversion(job, book, folder, pending, lanes, store, library, progress, names).run()
+        Conversion(job, book, folder, pending, lanes, store, library, progress, names, gates, started).run()
     return folder
 
 
 class Runner(threading.Thread):
+    """Starts queued jobs, oldest first, as soon as a machine they can use is free. Several books can be converting at
+    once, each on its own machines; a machine that has finished its part of one book moves on to the next."""
+
     def __init__(self, settings: Settings, store: JobStore, source: LaneSource | EngineFactory,
                  library: Library | None = None, idle_seconds: float = 1.0):
         super().__init__(name="runner", daemon=True)
         self.settings, self.store, self.idle = settings, store, idle_seconds
         self.source = source if hasattr(source, "lanes") else FactoryLane(source)
         self.library = library or Library(settings.library)
+        self.gates = Gates()
         self._halt = threading.Event()
 
     def stop(self) -> None:
         self._halt.set()
 
+    def can_start(self, job: Job) -> bool:
+        """A job can start when it needs no machine, or at least one machine it may use is free."""
+        lanes = self.source.lanes(job.plan.workers)
+        return not lanes or any(self.gates.gate(lane.id).free for lane in lanes)
+
     def run(self) -> None:
         self.store.requeue_interrupted()
         while not self._halt.is_set():
-            job = self.store.claim_next()
+            job = self.store.claim_next(self.can_start)
             if job is None:
                 self._halt.wait(self.idle)
                 continue
-            self.run_one(job)
+            started = threading.Event()
+            threading.Thread(target=self.run_one, args=(job, started), name=f"job-{job.id}", daemon=True).start()
+            started.wait(60)  # until the job is in line for its machines, so the next one cannot jump ahead
 
-    def run_one(self, job: Job) -> None:
+    def run_one(self, job: Job, started: threading.Event | None = None) -> None:
         try:
-            out = process(job, self.settings, self.store, self.source, self.library)
+            out = process(job, self.settings, self.store, self.source, self.library, self.gates, started)
             self.store.update(job.id, state=State.DONE, output=str(out), error=None)
             log.info("job %s done: %s", job.id, out)
         except Cancelled:

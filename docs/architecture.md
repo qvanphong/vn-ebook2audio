@@ -36,6 +36,7 @@
 | `ingest.py` | Builds a `Book` (spoken chapters) from a parse and a plan |
 | `text.py` | Cleaning, sentence splitting, dialogue, pauses |
 | `jobs.py` | `JobStore` (SQLite), `Runner`, `process()`, `Conversion` (lanes), `Progress` |
+| `scheduler.py` | `Gate` and `Ticket`: who may use a machine now, oldest book first |
 | `tts.py` | `ModelPool`, backends, handles (`LocalHandle`, `SupertonicHandle`), clone store, `prepare()` |
 | `catalog.py` | The model catalogue, "is it downloaded", download progress, cache folders |
 | `accel.py` | Which hardware runs the models (CPU or GPU): provider choice, start-up test, fallback, status |
@@ -145,8 +146,9 @@ keeps each answer for four seconds.
 | Progress | A lock; each update rewrites the job's JSON columns |
 | Text frontend (phoneme workers) | One shared instance with its own lock |
 
-Jobs run one at a time because a model already uses all the threads it is given; chapters within a job run in parallel
-only across *machines*.
+A machine renders one chapter at a time, because a model already uses all the threads it is given. Several jobs can be
+running, but each machine belongs to one of them at any moment (`scheduler.py`): within a job, chapters run in parallel
+across machines.
 
 ## The page
 

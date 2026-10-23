@@ -37,8 +37,8 @@ signature in the file name.
 **Machine.** Somewhere speech can be made: this server itself, or a **voice worker** (any other computer running
 `python -m app.worker`). You keep a list of machines and choose which ones share each book.
 
-**Job.** One conversion request: a book, a chapter selection, voice settings and the machines to use. Jobs run one
-at a time; within a job, chapters are shared between the machines.
+**Job.** One conversion request: a book, a chapter selection, voice settings and the machines to use. Several jobs
+can run at once, each on machines the others are not using; within a job, chapters are shared between the machines.
 
 **Library.** `data/library/<md5>/`, one folder per book holding the chapter files, a cover and a manifest
 (`book.json`).
@@ -68,8 +68,9 @@ single-file version of the converter, kept for history).
 
 1. **Between chapters of one book, across machines.** Each machine in a job takes the next free chapter. A faster
    machine does more. This is how a laptop and a NAS (or a phone) cooperate. See [Voice workers](workers.md).
-2. **Between jobs: not at all.** Jobs run one after another, because a model already uses all the CPU threads it is
-   given.
+2. **Between jobs, by machine.** A machine works on one book at a time (a model already uses all the CPU threads
+   it is given), but a machine that has nothing left to do for one book moves on to the next queued book while the
+   others finish the first. See [How a book is shared](workers.md#how-a-book-is-shared).
 
 ## What it never does
 
