@@ -7,7 +7,7 @@ are saved on disk and win over the environment afterwards.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `DATA_DIR` | `/data` | Where everything is kept (see below) |
+| `DATA_DIR` | `/data` in the Docker images; otherwise `./data` in the folder you start it from | Where everything is kept (see below). When `DATA_DIR` is not set and there is no writable `/data` (a native run on a Mac, Windows or Linux machine), the data goes in `./data` |
 | `PORT` | `8765` | Port of the page and API |
 | `TTS_MODEL` | `nano` | The Vietnamese model a Vietnamese book starts with: `nano` or `turbo` |
 | `TTS_ENGLISH_MODEL` | `english` | The model an English book starts with. `none` keeps `TTS_MODEL` for every book |

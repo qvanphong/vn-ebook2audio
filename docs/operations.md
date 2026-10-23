@@ -35,6 +35,7 @@ page is read from disk on every load; the API code is only read at start.
 | Symptom | What to check |
 |---|---|
 | The voice list is empty and says the model is loading | First use downloads the model (several minutes on a slow link). The page retries by itself. Check the log for download errors and that the machine can reach huggingface.co |
+| `No module named 'fastapi'` (or `uvicorn`, `numpy`) when starting a worker | The packages are in a different Python than the one running `python -m app.worker`. Run `python -m pip install -r requirements-worker.txt` with that same `python`, and check with `python -c "import sys; print(sys.executable)"` |
 | "the voice models are not installed on this server" / a job fails with "needs the … package" | This server lacks `vieneu` or `supertonic`. Install `requirements-engine.txt`, or send speech to a worker |
 | A job stops with "cannot reach the voice worker at …" | The worker is off, the address is wrong, or the network dropped for more than about 20 seconds. Start it and press Retry; finished chapters are kept |
 | "the worker rejected the token" | The token in Settings differs from the worker's `WORKER_TOKEN` |

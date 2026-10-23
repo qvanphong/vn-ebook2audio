@@ -107,7 +107,7 @@ Environment variables on the `ebook2audio` service. Uploads can override model, 
 | `READ_TITLES` | `1` | Speak each chapter title before its text |
 | `PRELOAD_MODELS` | `none` | Comma list of models (`nano`, `turbo`, `english`) to load at start. By default the server and the workers load nothing until a model is needed; an unknown name stops the start with a message |
 | `SCAN_INTERVAL` / `SETTLE_SECONDS` | `10` / `5` | Inbox polling and how long a file must be unchanged |
-| `DATA_DIR`, `PORT` | `/data`, `8765` | |
+| `DATA_DIR`, `PORT` | `/data` in Docker, else `./data`; `8765` | When no `DATA_DIR` is set and there is no writable `/data`, the data goes in `./data` where you start it |
 
 **Pronunciations.** Put `from=to` lines in `./data/config/pronunciations.txt` (whole word, case-insensitive, longest match first). Example: `iPhone 15=ai phôn mười lăm`.
 
@@ -206,7 +206,7 @@ Speech is the heavy part. By default this server runs the models itself. In **Se
 Start a worker on the machine that will do the work (Python 3.12 and ffmpeg installed):
 
 ```bash
-pip install -r requirements.txt -r requirements-engine.txt
+pip install -r requirements-worker.txt        # everything a worker needs, in one file
 WORKER_NAME="Laptop" WORKER_TOKEN=choose-a-secret python -m app.worker
 ```
 
@@ -215,7 +215,7 @@ WORKER_NAME="Laptop" WORKER_TOKEN=choose-a-secret python -m app.worker
 | `WORKER_PORT` | `8780` | Port to listen on |
 | `WORKER_NAME` | none | A name the worker reports in `/health`; Test fills it in for you |
 | `WORKER_TOKEN` | none | If set, every request needs `Authorization: Bearer <token>`. Without it anyone who can reach the port can use the worker, so set one |
-| `DATA_DIR` | `/data` | Where it keeps cloned voices and its voice list |
+| `DATA_DIR` | `/data` in Docker, else `./data` | Where it keeps cloned voices and its voice list |
 | `TTS_THREADS`, `TTS_PRECISION` | as for the server | How the models run once loaded |
 | `PRELOAD_MODELS` | `none` | A worker is passive: it starts empty and gets a model when the server asks for it. Set a comma list (`nano,english`) only if you want models ready before the first request |
 | `HF_HOME` | the Hugging Face default | Where models are downloaded. The English model's folder (`supertonic3`) is kept inside it, so one mounted folder holds every model |

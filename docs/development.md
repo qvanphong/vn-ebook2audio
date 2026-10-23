@@ -60,6 +60,7 @@ answers OPDS requests.
 | `test_engine.py`, `test_balance.py`, `test_balance_api.py` | The machine list, chapters shared across machines |
 | `test_english.py`, `test_english_real.py` | The English model, language choice, abbreviations |
 | `test_startup.py` | The server and workers start with no model loaded |
+| `test_requirements.py` | The requirements files cover what the code imports (worker, server), and agree on versions |
 | `test_accel.py` | The device setting (CPU or GPU), provider rewriting, status, fallback to the CPU |
 | `test_calibre.py` | The Calibre-Web client and its API |
 

@@ -266,3 +266,53 @@ def test_a_gpu_that_passes_its_test_is_used(monkeypatch):
     assert configure("cuda", ort)["providers"] == [CUDA]
     ort.InferenceSession("m.onnx", providers=[CPU])
     assert ort.created[-1].asked == [CUDA, CPU]
+
+
+# --- native installs: where the data goes, and finding CUDA's libraries --------------------------
+
+def test_the_data_folder_defaults_to_data_in_the_working_folder_when_there_is_no_writable_slash_data(tmp_path):
+    from app.config import default_data_dir
+
+    assert default_data_dir(tmp_path / "nope") == __import__("pathlib").Path("data")
+    assert default_data_dir(tmp_path) == tmp_path  # a container: the mounted volume is used
+
+
+def test_settings_from_the_environment_use_dot_data_when_nothing_is_set(tmp_path, monkeypatch):
+    monkeypatch.delenv("DATA_DIR", raising=False)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("app.config.default_data_dir", lambda *a: __import__("pathlib").Path("data"))
+    assert Settings.from_env().data_dir == (tmp_path / "data").resolve()
+    monkeypatch.setenv("DATA_DIR", str(tmp_path / "elsewhere"))
+    assert Settings.from_env().data_dir == (tmp_path / "elsewhere").resolve()
+    monkeypatch.setenv("DATA_DIR", "")
+    assert Settings.from_env().data_dir == (tmp_path / "data").resolve()
+
+
+def test_the_cuda_libraries_are_looked_for_before_a_cuda_session_is_made(monkeypatch):
+    ort = fake_ort([CUDA, CPU])
+    calls = []
+    ort.preload_dlls = lambda: calls.append(1)
+    monkeypatch.setattr(accel, "self_test", lambda provider: (True, provider))
+    configure("cuda", ort)
+    assert calls == [1]
+    configure("cpu", ort)
+    assert calls == [1]  # nothing to look for on the CPU
+
+
+def test_a_failure_to_preload_is_a_warning_and_the_gpu_check_decides(monkeypatch, caplog):
+    ort = fake_ort([CUDA, CPU])
+
+    def boom():
+        raise OSError("cudnn64_9.dll not found")
+
+    ort.preload_dlls = boom
+    monkeypatch.setattr(accel, "self_test", lambda provider: (True, provider))
+    with caplog.at_level(logging.WARNING, logger="accel"):
+        assert configure("cuda", ort)["providers"] == [CUDA]
+    assert "could not preload the CUDA libraries: cudnn64_9.dll not found" in caplog.text
+
+
+def test_the_self_test_script_still_passes_on_the_cpu_with_the_preload_line_in_it():
+    pytest.importorskip("onnxruntime")
+    assert accel.self_test(CPU) == (True, CPU)
+    assert "preload_dlls" in accel.SELF_TEST

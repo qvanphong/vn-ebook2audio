@@ -1,0 +1,9 @@
+# Everything a voice worker needs to run `python -m app.worker`, in one file:
+#   pip install -r requirements-worker.txt
+# (requirements-engine.txt alone does not list the web server. It usually arrives anyway with vieneu's own
+# dependencies, but that is not pinned or guaranteed.)
+-r requirements-engine.txt
+numpy==2.5.4
+fastapi==0.159.1
+uvicorn==0.54.0
+python-multipart==0.0.32

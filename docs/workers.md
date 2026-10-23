@@ -84,9 +84,25 @@ On the helping machine (Python 3.12 and ffmpeg installed), in this project:
 
 ```bash
 cd nas-audiobook
-pip install -r requirements.txt -r requirements-engine.txt
+python3.12 -m venv .venv && . .venv/bin/activate     # optional, but keeps it tidy
+python -m pip install -r requirements-worker.txt     # everything a worker needs, in one file
 WORKER_NAME="Laptop" WORKER_TOKEN=choose-a-secret python -m app.worker
 ```
+
+On Windows (PowerShell), the same steps are:
+
+```powershell
+cd nas-audiobook
+py -3.12 -m venv .venv; .\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements-worker.txt
+$env:WORKER_NAME = "Windows PC"; $env:WORKER_TOKEN = "choose-a-secret"
+python -m app.worker
+```
+
+Install with `python -m pip` so the packages go into the same Python that runs the worker. Installing with a different
+`pip` than the `python` you start it with is the usual reason for "No module named 'fastapi'". The Windows steps were
+not run on a Windows machine, and some of the speech packages' dependencies may need a C++ compiler there if no ready
+wheel exists. Windows Firewall must allow the port (TCP 8780).
 
 It listens on port 8780. Add its address and token in Settings and press Test.
 
@@ -108,7 +124,7 @@ worker download its model (about 390 MB), then render both chapters.
 | `WORKER_NAME` | none | A name reported in `/health` |
 | `WORKER_ACCEPTS` | `both` | `phonemes` makes the worker behave like a phone (see below) |
 | `PRELOAD_MODELS` | `none` | Models to load at start, comma separated, if you want them ready before the first request |
-| `DATA_DIR` | `/data` | Where it keeps cloned voices and its voice lists |
+| `DATA_DIR` | `/data` in Docker, else `./data` | Where it keeps cloned voices and its voice lists |
 | `HF_HOME`, `SUPERTONIC_CACHE_DIR` | defaults | Where models are downloaded |
 | `TTS_THREADS`, `TTS_PRECISION` | as for the server | How the models run |
 | `TTS_DEVICE` | `cpu` | `cpu`, `auto`, `cuda`, `directml`, `coreml` or `openvino` (see [Using a GPU](#using-a-gpu)); the command-line flag `--device` overrides it |
@@ -144,6 +160,21 @@ this server for "This server"):
 ```bash
 TTS_DEVICE=cuda python -m app.worker           # or: python -m app.worker --device cuda
 ```
+
+**NVIDIA GPU on Windows or Linux, running directly (not in Docker):** the worker needs the GPU build of ONNX Runtime and
+the CUDA and cuDNN libraries.
+
+```bash
+python -m pip install -r requirements-worker.txt
+python -m pip uninstall -y onnxruntime
+python -m pip install --force-reinstall "onnxruntime-gpu[cuda,cudnn]==1.22.0"
+```
+
+The `[cuda,cudnn]` extras install CUDA 12 and cuDNN 9 as Python packages, and the worker asks ONNX Runtime to find them
+before it starts (`preload_dlls`). If you installed the CUDA toolkit and cuDNN yourself instead, their folders must be
+on the `PATH`. With only the ordinary `onnxruntime` installed, `TTS_DEVICE=cuda` stops with "needs
+CUDAExecutionProvider ... Install onnxruntime-gpu instead of onnxruntime". The need for `onnxruntime-gpu` was reported
+from a Windows PC with an NVIDIA GPU; I did not run these steps on Windows myself, and no GPU speed was measured.
 
 The flag only changes which hardware the model libraries are told to use; the ONNX Runtime package decides what is
 possible, and the ordinary `onnxruntime` package can only use the CPU. The two packages cannot be installed together:

@@ -5,6 +5,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+def default_data_dir(container_dir: Path = Path("/data")) -> Path:
+    """/data inside the Docker images, where the volume is mounted. Anywhere else (running `python -m app` on a Mac, a
+    Windows PC or a Linux machine) there is no writable /data, so the data folder is ./data where you start it."""
+    return container_dir if container_dir.is_dir() and os.access(container_dir, os.W_OK) else Path("data")
+
+
 def available_cpus() -> int:
     try:
         return len(os.sched_getaffinity(0))
@@ -100,7 +106,7 @@ class Settings:
     def from_env(cls) -> "Settings":
         e = os.environ
         return cls(
-            data_dir=Path(e.get("DATA_DIR", "/data")).resolve(),
+            data_dir=Path(e.get("DATA_DIR") or default_data_dir()).resolve(),
             model=e.get("TTS_MODEL", "nano"),
             voice=e.get("TTS_VOICE") or None,
             dialog_voice=e.get("TTS_DIALOG_VOICE") or None,

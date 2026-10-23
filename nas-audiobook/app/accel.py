@@ -95,6 +95,11 @@ def tiny_model() -> bytes:
 SELF_TEST = """
 import sys, numpy as np, onnxruntime as ort
 wanted = sys.argv[1]
+if wanted == "CUDAExecutionProvider" and hasattr(ort, "preload_dlls"):
+    try:
+        ort.preload_dlls()  # find CUDA and cuDNN installed as pip packages (onnxruntime-gpu[cuda,cudnn])
+    except Exception:
+        pass
 session = ort.InferenceSession(bytes.fromhex(sys.argv[2]), providers=[wanted, "CPUExecutionProvider"])
 session.run(None, {"x": np.arange(4, dtype=np.float32)})
 print("PROVIDER", session.get_providers()[0])
@@ -141,6 +146,11 @@ def configure(device: str | None, ort=None, verify: bool = True) -> dict:
         if not worked:
             log.warning("device auto: %s could not start (%s); using the CPU", wanted[0], detail)
             wanted, tried = [], True
+    if wanted and wanted[0] == "CUDAExecutionProvider" and hasattr(ort, "preload_dlls"):
+        try:
+            ort.preload_dlls()
+        except Exception as exc:  # noqa: BLE001: the GPU check below says whether it matters
+            log.warning("could not preload the CUDA libraries: %s", exc)
     with _lock:
         _state.update(requested=requested, wanted=wanted, active=set(), fallback=False)
         if wanted and not _state["patched"]:
