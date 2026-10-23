@@ -701,7 +701,7 @@ function laneLines(j, lanes) {
   }
   return lanes.map((w) => {
     const done = w.done ? ` · ${w.done} done` : "";
-    if (w.state === "failed") return `<div class="bad">${esc(w.label)} dropped out: ${esc(w.error)}${done}</div>`;
+    if (w.state === "failed") return `<div class="bad">${esc(w.label)} dropped out: ${esc(w.error)}${w.detail ? " · " + esc(w.detail) : ""}${done}</div>`;
     if (w.state === "preparing") return `<div class="muted">${esc(w.label)} · ${esc(w.detail || "getting ready")}</div>`;
     if (w.state === "rendering") return `<div>${esc(w.label)} · “${esc(w.chapter)}” clip ${Math.min(w.clip_index + 1, w.clip_count)}/${w.clip_count}${done}</div>`;
     return `<div class="muted">${esc(w.label)} · ${w.state === "waiting" ? "waiting" : "no more chapters to take"}${done}</div>`;

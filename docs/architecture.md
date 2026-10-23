@@ -92,7 +92,9 @@ loop:     take the next pending chapter     (longest first when there are severa
 
 - Chapters are taken from a shared queue under a condition variable, so a free lane always takes the next one.
 - A lane that raises a machine-level error (`LaneError`: offline, voice missing, model not loadable) hands its chapter
-  back and drops out. Any other exception is a real failure and stops the job.
+  back and drops out; if it was only out of reach it is tried again every 20 seconds, and a book with no reachable
+  machine goes back to `queued` with a note (`MachinesLost`) instead of failing. Any other exception is a real failure
+  and stops the job.
 - A lane still preparing when the book is finished is abandoned (its thread is a daemon; the model it was loading keeps
   loading and is useful next time).
 - On cancel, each lane stops at the next sentence; the chapter in progress is discarded.

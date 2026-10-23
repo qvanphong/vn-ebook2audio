@@ -9,11 +9,15 @@ import numpy as np
 
 from . import catalog
 from .frontend import shared_frontend
-from .tts import SAMPLE_RATES, LaneError
+from .tts import SAMPLE_RATES, LaneError, Unreachable
 from .worker import SUPPORTED_PROTOCOLS
 
 
 class WorkerError(LaneError):
+    pass
+
+
+class WorkerOffline(WorkerError, Unreachable):
     pass
 
 
@@ -31,7 +35,7 @@ class RemoteBackend:
                  poll_seconds: float = 2.0):
         self.url = url.rstrip("/")
         self.headers = {"Authorization": f"Bearer {token}"} if token else {}
-        self.client = client or httpx.Client(base_url=self.url, timeout=httpx.Timeout(30.0, read=300.0))
+        self.client = client or httpx.Client(base_url=self.url, timeout=httpx.Timeout(30.0, connect=5.0, read=300.0))
         self.retries, self.backoff, self.load_timeout, self._sleep = retries, backoff, load_timeout, sleep
         self.poll_seconds = poll_seconds
         self._frontend = frontend
@@ -44,13 +48,14 @@ class RemoteBackend:
 
     def request(self, method: str, path: str, *, retry_loading: bool = True, **kwargs) -> httpx.Response:
         """One call to the worker. Network trouble and a model that is still loading are retried with a pause."""
-        last = ""
+        last, offline = "", False
         for attempt in range(self.retries + 1):
             try:
                 response = self.client.request(method, path, headers=self.headers, **kwargs)
             except httpx.TransportError as exc:
-                last = f"cannot reach the voice worker at {self.url} ({type(exc).__name__})"
+                last, offline = f"cannot reach the voice worker at {self.url} ({type(exc).__name__})", True
             else:
+                offline = False
                 if response.status_code == 503 and retry_loading:
                     last = f"the voice worker is busy loading: {_detail(response)}"
                 elif response.status_code >= 400:
@@ -59,14 +64,14 @@ class RemoteBackend:
                     return response
             if attempt < self.retries:
                 self._sleep(self.backoff * (attempt + 1))
-        raise WorkerError(last)
+        raise (WorkerOffline if offline else WorkerError)(last)
 
     def models(self) -> dict | None:
         """The worker's own account of each model (protocol 3), or None for an older worker."""
         try:
             response = self.client.request("GET", "/models", headers=self.headers)
         except httpx.TransportError as exc:
-            raise WorkerError(f"cannot reach the voice worker at {self.url} ({type(exc).__name__})") from exc
+            raise WorkerOffline(f"cannot reach the voice worker at {self.url} ({type(exc).__name__})") from exc
         if response.status_code == 404:
             return None
         if response.status_code >= 400:
@@ -116,7 +121,7 @@ class RemoteBackend:
         try:
             response = self.client.request("GET", "/voices", params={"model": model}, headers=self.headers)
         except httpx.TransportError as exc:
-            raise WorkerError(f"cannot reach the voice worker at {self.url} ({type(exc).__name__})") from exc
+            raise WorkerOffline(f"cannot reach the voice worker at {self.url} ({type(exc).__name__})") from exc
         if response.status_code not in (200, 503):
             raise WorkerError(f"the voice worker said {response.status_code}: {_detail(response)}")
 
@@ -135,7 +140,7 @@ class RemoteBackend:
             try:
                 response = self.client.request("GET", "/voices", params={"model": model}, headers=self.headers)
             except httpx.TransportError as exc:
-                raise WorkerError(f"cannot reach the voice worker at {self.url} ({type(exc).__name__})") from exc
+                raise WorkerOffline(f"cannot reach the voice worker at {self.url} ({type(exc).__name__})") from exc
             if response.status_code == 200 and response.json()["ready"]:
                 return RemoteHandle(self, model, caps)
             if response.status_code not in (200, 503):

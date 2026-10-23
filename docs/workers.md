@@ -57,9 +57,21 @@ chapters go in book order.
 - A machine that is still loading a model does not hold anyone up; the others start and it joins when ready.
 - A chapter is made entirely by one machine. Each finished chapter is encoded and added to the library by the main
   server, whichever machine made it.
-- A lane that fails (offline, missing model or voice, cannot load) is dropped and its chapter goes back to the queue
-  for the others. The job line says which machine dropped out and why. If every machine fails, the job stops with each
-  reason; finished chapters stay in the library and **Retry** continues from there.
+- A machine that fails never stops a book the others can finish. Its chapter goes back to the queue for the other
+  machines and the job line says which machine dropped out and why. What happens next depends on why:
+  - **Out of reach** (switched off, asleep, off the network, the worker stopped): the machine is tried again every 20
+    seconds while the book goes on, and takes chapters again as soon as it answers. A short outage (about 20
+    seconds, while a request is retried) is not even noticed. A machine that does not answer a connection within 5
+    seconds counts as out of reach.
+  - **Cannot do this job** (it lacks a model or a preset voice, does not serve the model, refuses the token): it stays
+    out of this book; the others carry on.
+  - **No machine left.** If every machine that was working on the book is out of reach, the book does **not** fail. It
+    goes back to **queued** with the note "waiting for a machine: …", keeps the chapters it finished, and is started
+    again 20 seconds later, on whichever machines can be reached then (including ones that were not in use before).
+    Cancel it if you no longer want it. If instead every machine said it cannot do the job, the book stops with an
+    error giving each reason; finished chapters stay in the library and **Retry** continues from there.
+  - A machine that disappears without closing the connection (power cut, cable pulled) is noticed only when its
+    request times out, which can take up to five minutes for a chapter it was in the middle of.
 - An error that is not a machine problem (for example a bug while making audio) stops the whole job.
 - If a chapter that was already finished is picked again (a retry, or *skip* not chosen), it is reused unless the job
   was told to replace it.

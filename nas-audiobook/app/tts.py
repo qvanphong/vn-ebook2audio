@@ -42,6 +42,11 @@ class LaneError(RuntimeError):
     """One machine cannot do this job (offline, missing model or voice). Another machine still may."""
 
 
+class Unreachable(LaneError):
+    """The machine cannot be reached right now (switched off, asleep, off the network). Unlike a missing model or voice
+    this may pass, so a job keeps the machine in mind and tries it again."""
+
+
 class VoiceMissing(LaneError):
     pass
 

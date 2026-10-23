@@ -20,7 +20,7 @@ from .library import AudioEntry, Library, md5_file
 from .model import ACTIVE, Book, Chapter, Plan, State, Voice
 from .scheduler import Gates
 from .text import TextOptions, load_pronunciations
-from .tts import Engine, EngineFactory, LaneError
+from .tts import Engine, EngineFactory, LaneError, Unreachable
 
 log = logging.getLogger("jobs")
 
@@ -187,6 +187,15 @@ class NoWorkers(RuntimeError):
     """Every machine that was asked to help failed before the book was finished."""
 
 
+class MachinesLost(NoWorkers):
+    """Every machine that was working on the book went out of reach. The book is not wrong, so it goes back in the
+    queue and continues when a machine can be reached again."""
+
+
+WAITING_NOTE = "waiting for a machine: "
+RETRY_SECONDS = 20.0  # how long before a machine that was out of reach is tried again
+
+
 class Lane(Protocol):
     """One machine doing part of a job. engine() gets it ready (blocking while a model loads) and returns the
     engine that speaks the job's voice."""
@@ -285,9 +294,9 @@ class Conversion:
 
     def __init__(self, job: Job, book: Book, folder: Path, pending: list[int], lanes: Sequence[Lane], store: JobStore,
                  library: Library, progress: Progress, names: dict[int, str], gates: Gates | None = None,
-                 started: threading.Event | None = None):
+                 started: threading.Event | None = None, retry_seconds: float = RETRY_SECONDS):
         self.job, self.book, self.folder, self.store, self.library = job, book, folder, store, library
-        self.gates, self.started = gates or Gates(), started
+        self.gates, self.started, self.retry_seconds = gates or Gates(), started, retry_seconds
         self.priority = (job.created, job.id)
         self.spec, self.plan = job.spec, job.plan
         self.sig = self.spec.signature()[:6]
@@ -301,6 +310,8 @@ class Conversion:
         self.cancelled = False
         self.fatal: BaseException | None = None
         self.failures: dict[str, str] = {}
+        self.lost: set[str] = set()  # machines out of reach right now; they are tried again while the book goes on
+        self.closing = threading.Event()
 
     def run(self) -> None:
         # Take a place in line for every machine before any lane starts, so a book queued later cannot slip in front.
@@ -312,10 +323,12 @@ class Conversion:
         for t in threads:
             t.start()
         try:
-            while not self.stop.is_set() and not self._drained() and any(t.is_alive() for t in threads):
+            while not self.stop.is_set() and not self._drained() and any(
+                    t.is_alive() and lane.id not in self.lost for t, lane in zip(threads, self.lanes)):
                 with self._cv:
                     self._cv.wait(0.1)
         finally:
+            self.closing.set()
             with self._cv:
                 self._cv.notify_all()
             for t, lane in zip(threads, self.lanes):  # a machine still downloading its model is left to finish alone
@@ -328,6 +341,8 @@ class Conversion:
             raise Cancelled()
         if self._todo or self._active:
             detail = "; ".join(f"{l.label}: {self.failures.get(l.id, 'stopped')}" for l in self.lanes)
+            if self.lost:
+                raise MachinesLost(f"no machine could be reached to finish the book ({detail})")
             raise NoWorkers(f"no machine could finish the book ({detail})")
 
     def _drained(self) -> bool:
@@ -380,11 +395,28 @@ class Conversion:
             return True
         return False
 
-    def _lane_failed(self, lane: Lane, exc: BaseException) -> None:
+    def _lane_failed(self, lane: Lane, exc: BaseException) -> bool:
+        """Record that a machine dropped out. Returns True when it may come back (it was only out of reach), in which
+        case the lane waits and tries again while the book goes on."""
         message = f"{type(exc).__name__}: {exc}" if not isinstance(exc, LaneError) else str(exc)
         self.failures[lane.id] = message
+        again = isinstance(exc, Unreachable)
+        if again:
+            self.lost.add(lane.id)
         log.warning("job %s: %s dropped out: %s", self.job.id, lane.label, message)
-        self.progress.lane(lane.id, state="failed", detail="", error=message, chapter=None, clip_index=0, clip_count=0)
+        self.progress.lane(lane.id, state="failed", detail=f"will try again in {self.retry_seconds:.0f} s" if again else "",
+                           error=message, chapter=None, clip_index=0, clip_count=0)
+        return again
+
+    def _wait_to_retry(self) -> bool:
+        """Pause before trying a lost machine again. False if the book finished or stopped meanwhile."""
+        return not self.closing.wait(self.retry_seconds) and not self.stop.is_set()
+
+    def _recovered(self, lane: Lane) -> None:
+        if lane.id in self.lost:
+            log.info("job %s: %s is back", self.job.id, lane.label)
+        self.lost.discard(lane.id)
+        self.failures.pop(lane.id, None)
 
     def _lane(self, lane: Lane, ticket) -> None:
         gate, engine = self.gates.gate(lane.id), None
@@ -395,6 +427,7 @@ class Conversion:
                     self.progress.lane(lane.id, state="waiting", detail="waiting for another book to finish with this machine")
                 if not ticket.wait(self._stopped):
                     return
+                out_of_reach = False
                 try:
                     if engine is None:
                         try:
@@ -402,19 +435,23 @@ class Conversion:
                             engine = lane.engine(self.spec, lambda message: self.progress.lane(
                                 lane.id, state="preparing", detail=message))
                         except Exception as exc:
-                            if not self.stop.is_set():
-                                self._lane_failed(lane, exc)
-                            return
-                    while (index := self._take_now()) is not None:
+                            if self.stop.is_set() or not self._lane_failed(lane, exc):
+                                return
+                            out_of_reach = True
+                        else:
+                            self._recovered(lane)
+                    while not out_of_reach and (index := self._take_now()) is not None:
                         try:
                             self._render(lane, engine, index)
                         except Cancelled:
                             self._release()
                             return
                         except LaneError as exc:
-                            self._release(index)
-                            self._lane_failed(lane, exc)
-                            return
+                            self._release(index)  # the chapter goes back in the queue for the other machines
+                            if not self._lane_failed(lane, exc):
+                                return
+                            engine, out_of_reach = None, True
+                            break
                         except BaseException as exc:
                             self.fatal = self.fatal or exc
                             self.stop.set()
@@ -423,12 +460,14 @@ class Conversion:
                         self._release()
                         if gate.contended(self.priority):  # an older book wants this machine: let it in between chapters
                             break
-                    if not self.stop.is_set():
+                    if not out_of_reach and not self.stop.is_set():
                         self.progress.lane(lane.id, state="idle", detail="")
                 finally:
                     ticket.release()
                     ticket = None
-            if not self.stop.is_set():
+                if out_of_reach and not self._wait_to_retry():
+                    return
+            if not self.stop.is_set() and lane.id not in self.lost:
                 self.progress.lane(lane.id, state="done", detail="")
         finally:
             if ticket is not None:
@@ -456,18 +495,19 @@ class Conversion:
 
 
 def process(job: Job, settings: Settings, store: JobStore, source: LaneSource, library: Library,
-            gates: Gates | None = None, started: threading.Event | None = None) -> Path:
+            gates: Gates | None = None, started: threading.Event | None = None,
+            retry_seconds: float = RETRY_SECONDS) -> Path:
     """Convert one book. `started` is set once the job has its place in line for every machine it will use (or needs
     none), so the runner can tell when the next book may be looked at."""
     try:
-        return _process(job, settings, store, source, library, gates, started)
+        return _process(job, settings, store, source, library, gates, started, retry_seconds)
     finally:
         if started is not None:
             started.set()
 
 
 def _process(job: Job, settings: Settings, store: JobStore, source: LaneSource, library: Library,
-             gates: Gates | None, started: threading.Event | None) -> Path:
+             gates: Gates | None, started: threading.Event | None, retry_seconds: float) -> Path:
     opts = TextOptions(job.read_titles, bool(job.dialog_voice), load_pronunciations(settings.pronunciations))
     plan = job.plan
     book = ingest.build_book(ingest.parse(Path(job.source), plan.processor, dict(plan.params)), plan, opts)
@@ -498,7 +538,7 @@ def _process(job: Job, settings: Settings, store: JobStore, source: LaneSource, 
     if pending:
         if not lanes:
             raise NoWorkers("none of the machines chosen for this book exist any more; choose again in Convert or Settings")
-        Conversion(job, book, folder, pending, lanes, store, library, progress, names, gates, started).run()
+        Conversion(job, book, folder, pending, lanes, store, library, progress, names, gates, started, retry_seconds).run()
     return folder
 
 
@@ -507,9 +547,9 @@ class Runner(threading.Thread):
     once, each on its own machines; a machine that has finished its part of one book moves on to the next."""
 
     def __init__(self, settings: Settings, store: JobStore, source: LaneSource | EngineFactory,
-                 library: Library | None = None, idle_seconds: float = 1.0):
+                 library: Library | None = None, idle_seconds: float = 1.0, retry_seconds: float = RETRY_SECONDS):
         super().__init__(name="runner", daemon=True)
-        self.settings, self.store, self.idle = settings, store, idle_seconds
+        self.settings, self.store, self.idle, self.retry_seconds = settings, store, idle_seconds, retry_seconds
         self.source = source if hasattr(source, "lanes") else FactoryLane(source)
         self.library = library or Library(settings.library)
         self.gates = Gates()
@@ -519,7 +559,10 @@ class Runner(threading.Thread):
         self._halt.set()
 
     def can_start(self, job: Job) -> bool:
-        """A job can start when it needs no machine, or at least one machine it may use is free."""
+        """A job can start when it needs no machine, or at least one machine it may use is free. A job that went back
+        in the queue because its machines were out of reach waits a little before it tries them again."""
+        if (job.error or "").startswith(WAITING_NOTE) and time.time() - job.updated < self.retry_seconds:
+            return False
         lanes = self.source.lanes(job.plan.workers)
         return not lanes or any(self.gates.gate(lane.id).free for lane in lanes)
 
@@ -536,9 +579,14 @@ class Runner(threading.Thread):
 
     def run_one(self, job: Job, started: threading.Event | None = None) -> None:
         try:
-            out = process(job, self.settings, self.store, self.source, self.library, self.gates, started)
+            self.store.update(job.id, error=None)
+            out = process(job, self.settings, self.store, self.source, self.library, self.gates, started,
+                          self.retry_seconds)
             self.store.update(job.id, state=State.DONE, output=str(out), error=None)
             log.info("job %s done: %s", job.id, out)
+        except MachinesLost as exc:
+            log.warning("job %s goes back in the queue: %s", job.id, exc)
+            self.store.update(job.id, state=State.QUEUED, error=WAITING_NOTE + str(exc))
         except Cancelled:
             self.store.update(job.id, state=State.CANCELLED, cancel=0)
         except (ingest.IngestError, ingest.UnsupportedFormat, ingest.ParamError) as exc:
