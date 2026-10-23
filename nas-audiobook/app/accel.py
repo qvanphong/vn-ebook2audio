@@ -212,6 +212,8 @@ def configure(device: str | None, ort=None, verify: bool = True) -> dict:
             wanted, tried = [], True
     if wanted and wanted[0] == "CUDAExecutionProvider" and hasattr(ort, "preload_dlls"):
         try:
+            if torch_ok:
+                import torch  # noqa: F401, PLC0415: load PyTorch's own cuDNN first; the preload would load another version
             ort.preload_dlls()
         except Exception as exc:  # noqa: BLE001: the GPU check below says whether it matters
             log.warning("could not preload the CUDA libraries: %s", exc)
