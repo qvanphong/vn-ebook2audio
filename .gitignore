@@ -1,0 +1,33 @@
+# ---- Local runtime data and secrets: never publish ----
+.env
+.env.*
+!.env.example
+nas-audiobook/data/
+nas-audiobook/data-docker/
+*.sqlite
+*.sqlite-journal
+
+# ---- Personal files ----
+/books/
+/lancedb/
+# Research notes and early scripts, kept locally and not published.
+*-reference/
+
+# ---- Tooling and build output ----
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# ---- Android ----
+android-spike
+android-spike/.gradle/
+android-spike/.kotlin/
+android-spike/**/build/
+android-spike/local.properties
+*.apk
