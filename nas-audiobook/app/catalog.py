@@ -22,11 +22,11 @@ class ModelInfo:
 
 
 CATALOG: dict[str, ModelInfo] = {
-    # Nano is CPU only (CUDA and CoreML do not run its graph). The others are tried on the accelerator and fall back
-    # to the CPU if their first run fails. Only English on CoreML has been run on real hardware.
+    # `accelerators` are the ONNX Runtime devices a model may use. Nano is CPU only (CUDA and CoreML do not run its
+    # graph). Turbo has none: its GPU path is PyTorch with CUDA, not ONNX Runtime (see tts.LocalBackend). English is
+    # tried on the accelerator and falls back to the CPU if its first run fails.
     "nano": ModelInfo("nano", "Vietnamese · Nano", "vi", "Fast, lighter, good for long books", 280, "vieneu"),
-    "turbo": ModelInfo("turbo", "Vietnamese · Turbo", "vi", "Best Vietnamese quality, about 3x slower", 620, "vieneu",
-                       ("cuda", "directml")),
+    "turbo": ModelInfo("turbo", "Vietnamese · Turbo", "vi", "Best Vietnamese quality, about 3x slower", 620, "vieneu"),
     "english": ModelInfo("english", "English · Supertonic", "en", "Clear and fast, 10 voices, no cloning", 390, "supertonic",
                          ("cuda", "directml", "coreml")),
 }
@@ -38,6 +38,10 @@ TURBO_REPO = "pnnbao-ump/VieNeu-TTS-v3-Turbo"
 TURBO_DIRS = {"fp32": "onnx_update", "int8": "onnx_int8"}
 TURBO_FILES = ["config.json", "tokenizer.json", "vieneu_prefill.onnx", "vieneu_decode_step.onnx",
                "vieneu_acoustic_cached.onnx", "vieneu_backbone_shared.data", "vieneu_v3_heads.npz"]
+TURBO_TORCH_FILES = ["update/config.json", "update/model.safetensors", "update/tokenizer.json", "update/tokenizer_config.json"]
+MOSS_TORCH_REPO = "OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano"
+MOSS_TORCH_FILES = ["config.json", "configuration_moss_audio_tokenizer.py", "modeling_moss_audio_tokenizer.py",
+                    "model-00001-of-00001.safetensors", "model.safetensors.index.json"]
 MOSS_REPO = "OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX"
 MOSS_FILES = ["moss_audio_tokenizer_decode_full.onnx", "moss_audio_tokenizer_decode_shared.data",
               "moss_audio_tokenizer_decode_step.onnx"]
@@ -73,9 +77,11 @@ def package_installed(model: str) -> bool:
     return importlib.util.find_spec(CATALOG[model].package) is not None
 
 
-def _hf_files(model: str, precision: str) -> list[tuple[str, str]]:
+def _hf_files(model: str, precision: str, torch: bool = False) -> list[tuple[str, str]]:
     if model == "nano":
         return [(NANO_REPO, f) for f in NANO_FILES]
+    if torch:  # Turbo on the GPU, through PyTorch: other files than the ONNX ones
+        return [(TURBO_REPO, f) for f in TURBO_TORCH_FILES] + [(MOSS_TORCH_REPO, f) for f in MOSS_TORCH_FILES]
     folder = TURBO_DIRS.get(precision, "onnx_update")
     return [(TURBO_REPO, f"{folder}/{f}") for f in TURBO_FILES] + [(MOSS_REPO, f) for f in MOSS_FILES]
 
@@ -88,7 +94,7 @@ def _english_dir() -> Path | None:
     return Path(get_cache_dir("supertonic-3"))
 
 
-def downloaded(model: str, precision: str = "fp32") -> bool:
+def downloaded(model: str, precision: str = "fp32", torch: bool = False) -> bool:
     """Are all the files this model needs already on this machine?"""
     if model not in CATALOG:
         raise ValueError(f"unknown model {model!r}")
@@ -103,7 +109,7 @@ def downloaded(model: str, precision: str = "fp32") -> bool:
         from huggingface_hub import try_to_load_from_cache
     except ImportError:
         return False
-    return all(isinstance(try_to_load_from_cache(repo, name), str) for repo, name in _hf_files(model, precision))
+    return all(isinstance(try_to_load_from_cache(repo, name), str) for repo, name in _hf_files(model, precision, torch))
 
 
 def _size(path: Path) -> int:
@@ -113,7 +119,7 @@ def _size(path: Path) -> int:
         return 0
 
 
-def bytes_on_disk(model: str, precision: str = "fp32") -> int:
+def bytes_on_disk(model: str, precision: str = "fp32", torch: bool = False) -> int:
     """How much of the model has arrived so far, including a download still in progress."""
     if model == "english":
         folder = _english_dir()
@@ -129,7 +135,7 @@ def bytes_on_disk(model: str, precision: str = "fp32") -> int:
     except ImportError:
         return 0
     total = 0
-    for repo in {r for r, _ in _hf_files(model, precision)}:
+    for repo in {r for r, _ in _hf_files(model, precision, torch)}:
         blobs = Path(HF_HUB_CACHE) / ("models--" + repo.replace("/", "--")) / "blobs"
         if blobs.is_dir():
             total += sum(_size(p) for p in blobs.iterdir() if p.is_file())

@@ -6,11 +6,16 @@ then decides for itself: `load_checked()` gives a model the accelerator only whe
 says which devices each model supports), so a machine with a GPU still runs a CPU-only model on the CPU. `status()` says
 what was asked for and what each model really got, so a GPU that is silently not in use shows up.
 
+Turbo is the exception to "ONNX Runtime does everything": VieNeu runs it on the GPU through PyTorch with CUDA (its
+own batched, CUDA-graph path), and only on the CPU through ONNX. So a machine whose PyTorch can use CUDA runs Turbo
+there, whatever ONNX Runtime package it has, and `torch_cuda()` says whether that is the case.
+
 A GPU also needs the matching ONNX Runtime package: `onnxruntime-gpu` (NVIDIA CUDA) or `onnxruntime-directml`
 (any GPU on Windows). The ordinary `onnxruntime` package can only use the CPU (and CoreML on a Mac)."""
 from __future__ import annotations
 
 import logging
+import importlib.util
 import struct
 import subprocess
 import sys
@@ -20,6 +25,7 @@ from typing import Sequence
 log = logging.getLogger("accel")
 
 CPU = "CPUExecutionProvider"
+TORCH_CUDA = "PyTorchCUDA"  # stands in for a provider name when a model runs on the GPU through PyTorch
 DEVICES = {
     "cpu": [],
     "cuda": ["CUDAExecutionProvider"],           # NVIDIA, with onnxruntime-gpu
@@ -38,12 +44,14 @@ class DeviceError(ValueError):
 
 _lock = threading.Lock()
 _state: dict = {"requested": "cpu", "device": "cpu", "wanted": [], "active": set(), "fallback": False,
-                "patched": False, "models": {}}
+                "patched": False, "models": {}, "torch": False}
 _local = threading.local()  # while a model loads: the providers it may use, and the ones its sessions really got
 
 
 def device_of(provider: str | None) -> str:
     """The device name (`cuda`, `directml`, ...) that a provider belongs to; `cpu` for the CPU or anything unknown."""
+    if provider == TORCH_CUDA:
+        return "cuda"
     return next((name for name, providers in DEVICES.items() if provider in providers), "cpu")
 
 
@@ -121,6 +129,35 @@ print("PROVIDER", session.get_providers()[0])
 """
 
 
+TORCH_SELF_TEST = """
+import torch
+assert torch.cuda.is_available(), "torch.cuda.is_available() is False (this PyTorch has no CUDA, or no usable GPU)"
+x = torch.ones(8, device="cuda")
+print("TORCH", float((x * 2).sum()))
+"""
+
+
+def _torch_installed() -> bool:
+    return importlib.util.find_spec("torch") is not None
+
+
+def torch_cuda_test(timeout: float = 180.0, script: str = TORCH_SELF_TEST) -> tuple[bool, str]:
+    """Can PyTorch run on a CUDA GPU here? Tried in a child process, like the ONNX Runtime test."""
+    try:
+        done = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return False, f"it did not answer within {timeout:.0f} seconds"
+    if done.returncode != 0:
+        lines = [ln for ln in (done.stderr or done.stdout).strip().splitlines() if ln.strip()]
+        return False, lines[-1][:240] if lines else f"the test process failed ({done.returncode})"
+    return ("TORCH 16.0" in done.stdout), done.stdout.strip()[-80:]
+
+
+def torch_cuda() -> bool:
+    """Does this machine run Turbo on the GPU through PyTorch? Decided at start by `configure()`."""
+    return bool(_state["torch"])
+
+
 def self_test(provider: str, timeout: float = 180.0, script: str = SELF_TEST) -> tuple[bool, str]:
     """Try a provider on a tiny model in a separate process. A GPU that is missing or broken can crash the whole
     process rather than raise an error, and that must never happen in the middle of somebody's book. Returns
@@ -146,13 +183,25 @@ def configure(device: str | None, ort=None, verify: bool = True) -> dict:
     first tried on a tiny model in a child process: an explicit choice that fails stops the start with the reason
     (`auto` quietly uses the CPU)."""
     requested = parse_device(device)
+    torch_ok = False
+    if requested in ("auto", "cuda") and verify and _torch_installed():
+        torch_ok, detail = torch_cuda_test()
+        if not torch_ok:
+            (log.warning if requested == "cuda" else log.info)(
+                "PyTorch cannot use CUDA here (%s), so Turbo will run on the CPU", detail)
     if ort is None:
         if requested == "cpu":
             with _lock:
-                _state.update(requested="cpu", device="cpu", wanted=[], active=set(), fallback=False, models={})
+                _state.update(requested="cpu", device="cpu", wanted=[], active=set(), fallback=False, models={},
+                              torch=False)
             return status()
         import onnxruntime as ort  # noqa: PLC0415
-    wanted = providers_for(requested, list(ort.get_available_providers()))
+    try:
+        wanted = providers_for(requested, list(ort.get_available_providers()))
+    except DeviceError:
+        if not torch_ok:  # an explicit device that nothing here can provide is an error; PyTorch may still serve Turbo
+            raise
+        wanted = []
     tried = False
     if wanted and verify:
         worked, detail = self_test(wanted[0])
@@ -168,10 +217,12 @@ def configure(device: str | None, ort=None, verify: bool = True) -> dict:
             log.warning("could not preload the CUDA libraries: %s", exc)
     with _lock:
         _state.update(requested=requested, device=device_of(wanted[0]) if wanted else "cpu", wanted=wanted,
-                      active=set(), fallback=False, models={})
+                      active=set(), fallback=False, models={}, torch=torch_ok)
         if wanted and not _state["patched"]:
             _patch(ort)
             _state["patched"] = True
+    if torch_ok:
+        log.info("device %s: Turbo will run on the GPU through PyTorch", requested)
     if requested == "auto" and not wanted and not tried:
         log.info("device auto: no GPU provider is available, using the CPU")
     elif wanted:
@@ -221,19 +272,31 @@ def _note(model: str | None, provider: str, fallback: bool, note: str | None = N
 def device_for(accelerators: Sequence[str] | None) -> str:
     """The device a model will be tried on: this machine's accelerator if the model supports it, else the CPU."""
     device = _state["device"]
-    return device if device != "cpu" and (accelerators is None or device in accelerators) else "cpu"
+    return device if _state["wanted"] and (accelerators is None or device in accelerators) else "cpu"
 
 
-def load_checked(load, check, model: str | None = None, accelerators: Sequence[str] | None = None):
+def record(model: str, provider: str, fallback: bool = False, note: str | None = None) -> None:
+    """Say where a model that was loaded outside `load_checked` (Turbo on PyTorch) runs."""
+    _note(model, provider, fallback, note)
+
+
+def load_checked(load, check, model: str | None = None, accelerators: Sequence[str] | None = None,
+                 cpu_note: str | None = None, cpu_fallback: bool = False):
     """Load a model on the device that suits it. The machine's accelerator is offered only to a model that supports it
     (`accelerators`; None means any), so a CPU-only model never even tries the GPU. When the accelerator is used, prove
     it works by running `check` on the model: a GPU provider can accept a graph at load time and then fail when it runs
     ("error in building plan"), so a model that fails the check is loaded again on the CPU instead of failing every
-    request. What each model got, and any fallback, is reported in `status()`."""
+    request. What each model got, and any fallback, is reported in `status()`. `cpu_note` replaces the usual note for a
+    model that runs on the CPU ("" for none), and `cpu_fallback` marks that as a fallback."""
     if device_for(accelerators) == "cpu":
         handle, _ = _load_with(load, [])
-        _note(model, CPU, False, f"the {model} model runs on the CPU only (it cannot use {_state['device']})"
-              if _state["wanted"] else None)
+        if cpu_note is None:
+            cpu_note = (f"the {model} model runs on the CPU only (it cannot use {_state['device']})"
+                        if _state["wanted"] else None)
+        if cpu_fallback:
+            with _lock:
+                _state["fallback"] = True
+        _note(model, CPU, cpu_fallback, cpu_note or None)
         return handle
     wanted = list(_state["wanted"])
     handle, seen = _load_with(load, wanted)
@@ -271,5 +334,5 @@ def status() -> dict:
         models = {m: dict(e) for m, e in _state["models"].items()}
         active = sorted({e["provider"] for e in models.values()} or _state["active"])
         return {"requested": _state["requested"], "device": _state["device"], "providers": wanted or [CPU],
-                "active": active or None, "using_gpu": bool(wanted) and any(p != CPU for p in active),
-                "fallback": _state["fallback"], "models": {m: {k: v for k, v in e.items() if k != "provider"} for m, e in models.items()}}
+                "active": active or None, "using_gpu": any(p != CPU for p in active),
+                "torch_cuda": bool(_state["torch"]), "fallback": _state["fallback"], "models": {m: {k: v for k, v in e.items() if k != "provider"} for m, e in models.items()}}

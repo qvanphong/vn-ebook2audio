@@ -179,10 +179,10 @@ from the saved copy, and a sample fails with a clear message after the same 20 s
 
 The worker picks the device for each model. By default (`auto`) it uses a GPU it finds (CUDA, then DirectML) for the
 models that can use one, and the CPU for the rest, so nobody has to know which model runs where. Which devices a model
-can use is in the catalogue: **Nano is CPU only**, **Turbo** may use CUDA or DirectML, **English** may use CUDA,
-DirectML or CoreML. A machine with an NVIDIA GPU therefore runs Turbo on the GPU and Nano on the CPU at the same time,
+can use is in the catalogue: **Nano is CPU only**, **Turbo** uses CUDA through PyTorch (see below), **English** may use CUDA,
+DirectML or CoreML through ONNX Runtime. A machine with an NVIDIA GPU therefore runs Turbo on the GPU and Nano on the CPU at the same time,
 and a Mac runs both Vietnamese models on the CPU. A model that fails its first run on the GPU is loaded again on the
-CPU. Settings shows the device each model really runs on. Only English on CoreML has been run on real hardware here;
+CPU. Settings shows the device each model really runs on. Only English on CoreML has been run on real hardware here, and it was *slower* than the CPU (RTF 0.46 against 0.31 on an M1 Pro, so a GPU is not automatically faster for these models);
 CUDA and DirectML for Turbo and English are tried at run time and fall back, not tested.
 
 To force the choice, set the device on the machine that runs the models (a worker, or this server for "This server"). A
@@ -192,7 +192,7 @@ named device that is not available stops the start with the reason; the models t
 |---|---|---|
 | `auto` (default) | A GPU if one is available (CUDA, then DirectML), otherwise the CPU | whichever you installed |
 | `cpu` | The CPU for every model | `onnxruntime` |
-| `cuda` | An NVIDIA GPU | `onnxruntime-gpu`, plus CUDA 12 and cuDNN 9 on the machine |
+| `cuda` | An NVIDIA GPU | for English `onnxruntime-gpu`, plus CUDA 12 and cuDNN 9 on the machine; for Turbo the CUDA build of PyTorch (`requirements-engine-torch-cuda.txt`) |
 | `directml` | Any GPU on Windows (NVIDIA, AMD, Intel) | `onnxruntime-directml` |
 | `coreml` | Apple silicon | the ordinary macOS `onnxruntime` |
 | `openvino` | Intel | `onnxruntime-openvino` |
@@ -207,14 +207,32 @@ the CUDA and cuDNN libraries.
 ```bash
 python -m pip install -r requirements-worker.txt
 python -m pip uninstall -y onnxruntime
-python -m pip install --force-reinstall "onnxruntime-gpu[cuda,cudnn]==1.22.0"
+python -m pip install --force-reinstall "onnxruntime-gpu[cuda,cudnn]==1.22.0"     # for the English model on CUDA
+python -m pip install -r requirements-engine-torch-cuda.txt                      # for Turbo on CUDA
 ```
 
-Do **not** install `vieneu[cuda]` for this: that extra is for VieNeu's PyTorch path (it pulls in `torch`, `transformers` and
-more, several gigabytes) and these ONNX models do not use it. "needs CUDAExecutionProvider" means the ONNX Runtime package
-is the CPU one; the fix is `onnxruntime-gpu`, as above.
+**Turbo uses PyTorch on the GPU, not ONNX Runtime.** VieNeu has two Turbo engines: an ONNX one that only runs on the
+CPU, and a PyTorch one with CUDA graphs and batching that is meant for NVIDIA GPUs (its authors measure Turbo at about
+0.1 seconds of work per second of audio on an RTX 3060, against 0.55 to 0.62 on a laptop CPU). The worker picks between
+them by itself: if PyTorch can use CUDA on the machine, Turbo runs on the GPU through PyTorch; otherwise on the CPU
+through ONNX, whatever ONNX Runtime package is installed. ONNX Runtime with CUDA (`onnxruntime-gpu`, cuDNN) is now only
+for the English model; Nano never uses a GPU. So for Turbo on an NVIDIA GPU:
 
-The `[cuda,cudnn]` extras install CUDA 12 and cuDNN 9 as Python packages, and the worker asks ONNX Runtime to find them
+```bash
+python -m pip install -r requirements-engine-torch-cuda.txt
+```
+
+That installs the CUDA build of PyTorch (about 2.5 GB, with its own CUDA and cuDNN) and the `transformers` version
+VieNeu pins; do not install `vieneu[cuda]`, which pulls in more than the worker needs. PyTorch's Turbo files
+(about 340 MB) are downloaded by the first Turbo request, in addition to the ONNX ones if the CPU engine is ever used.
+At start the worker tries PyTorch on the GPU in a child process; with `auto` a failure is a log line and Turbo runs on
+the CPU, with `--device cuda` it is a warning (the worker still starts, because English may have ONNX CUDA). If Turbo
+fails its first run on the GPU it is loaded again on the CPU, and Settings shows `CUDA` or `CPU` next to it with the
+reason on hover. I ran the PyTorch engine on this Mac's CPU only (it loads, lists 25 voices and speaks, at RTF 0.77, slower
+than the ONNX CPU engine); I have not run it on an NVIDIA GPU. The speed figures above are the VieNeu authors', not
+mine.
+
+For the English model on CUDA, the `[cuda,cudnn]` extras install CUDA 12 and cuDNN 9 as Python packages, and the worker asks ONNX Runtime to find them
 before it starts (`preload_dlls`). If you installed the CUDA toolkit and cuDNN yourself instead, their folders must be
 on the `PATH`. With only the ordinary `onnxruntime` installed, `TTS_DEVICE=cuda` stops with "needs
 CUDAExecutionProvider ... Install onnxruntime-gpu instead of onnxruntime". The need for `onnxruntime-gpu` was reported

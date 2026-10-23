@@ -111,6 +111,13 @@ python -m app.bench --model turbo
 python -m app.bench --model english
 ```
 
+On a machine with a GPU, compare devices (the report says where the model really ran):
+
+```bash
+python -m app.bench --model turbo --device cpu
+python -m app.bench --model turbo --device cuda
+```
+
 It prints load time, peak memory, the speed as RTF (seconds of work per second of audio; below 1.0 is faster than real
 time) and how long a 300,000-character novel would take. If this machine is too slow, add a faster computer as a
 [voice worker](workers.md).

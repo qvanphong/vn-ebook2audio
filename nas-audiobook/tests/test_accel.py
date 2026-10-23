@@ -31,9 +31,11 @@ def fake_ort(available, gpu_works=True):
 
 @pytest.fixture(autouse=True)
 def clean_state():
-    accel._state.update(requested="cpu", device="cpu", wanted=[], active=set(), fallback=False, patched=False, models={})
+    accel._state.update(requested="cpu", device="cpu", wanted=[], active=set(), fallback=False, patched=False, models={},
+                        torch=False)
     yield
-    accel._state.update(requested="cpu", device="cpu", wanted=[], active=set(), fallback=False, patched=False, models={})
+    accel._state.update(requested="cpu", device="cpu", wanted=[], active=set(), fallback=False, patched=False, models={},
+                        torch=False)
 
 
 def test_the_default_is_the_cpu_and_changes_nothing():
@@ -41,7 +43,7 @@ def test_the_default_is_the_cpu_and_changes_nothing():
     original = ort.InferenceSession
     assert configure(None, ort, verify=False)["requested"] == "cpu" and ort.InferenceSession is original
     assert status() == {"requested": "cpu", "device": "cpu", "providers": [CPU], "active": None, "using_gpu": False,
-                        "fallback": False, "models": {}}
+                        "torch_cuda": False, "fallback": False, "models": {}}
 
 
 def test_names_are_case_insensitive_and_unknown_ones_are_refused_with_the_choices():
@@ -201,8 +203,8 @@ def test_the_local_backend_proves_each_model_with_a_short_first_run(monkeypatch)
 
     monkeypatch.setattr(tts.LocalBackend, "_load", lambda self, model: Handle())
     tts.LocalBackend(1, "fp32").load("english")
-    tts.LocalBackend(1, "fp32").load("turbo")
-    assert ran == ["Hello.", "Xin chào."]
+    tts.LocalBackend(1, "fp32").load("nano")
+    assert ran == ["Hello."]  # nano cannot use the GPU, so there is nothing to prove
 
 
 # --- each model picks its own device -----------------------------------------------------------
@@ -255,7 +257,7 @@ def test_the_catalogue_says_which_models_can_use_which_device():
     from app import catalog
 
     assert catalog.CATALOG["nano"].accelerators == ()
-    assert "cuda" in catalog.CATALOG["turbo"].accelerators and "cuda" in catalog.CATALOG["english"].accelerators
+    assert catalog.CATALOG["turbo"].accelerators == () and "cuda" in catalog.CATALOG["english"].accelerators
     assert all(d in accel.DEVICES for info in catalog.CATALOG.values() for d in info.accelerators)
 
 
@@ -385,3 +387,119 @@ def test_the_log_says_where_each_model_runs_so_the_libraries_own_cpu_wording_can
         load_on(ort, "nano", [])
     assert "the turbo model runs on CUDA" in caplog.text
     assert "the nano model runs on the CPU (the nano model runs on the CPU only" in caplog.text
+
+
+# --- Turbo on the GPU goes through PyTorch -----------------------------------------------------
+
+class Loads:
+    """Stands in for LocalBackend._load: records how each model was loaded."""
+
+    def __init__(self, fail_torch=False):
+        self.calls, self.ran, self.fail_torch = [], [], fail_torch
+
+    def __call__(self, model, torch=False):
+        self.calls.append((model, torch))
+        outer = self
+
+        class Handle:
+            def infer(self, text, **kw):
+                if torch and outer.fail_torch:
+                    raise RuntimeError("CUDA error: out of memory")
+                outer.ran.append((model, torch, text))
+
+        return Handle()
+
+
+def local_backend(monkeypatch, loads):
+    from app import tts
+
+    monkeypatch.setattr(tts.LocalBackend, "_load", loads)
+    return tts.LocalBackend(1, "fp32")
+
+
+def test_turbo_runs_on_the_gpu_through_pytorch_when_this_machine_can(monkeypatch, caplog):
+    configure("cpu", fake_ort([CPU]), verify=False)
+    accel._state["torch"] = True
+    loads = Loads()
+    backend = local_backend(monkeypatch, loads)
+    assert backend.device("turbo")["device"] == "cuda" and backend.device("nano")["device"] == "cpu"
+    with caplog.at_level(logging.INFO, logger="accel"):
+        backend.load("turbo")
+    assert loads.calls == [("turbo", True)] and loads.ran == [("turbo", True, "Xin chào.")]
+    assert status()["models"]["turbo"] == {"device": "cuda", "fallback": False, "note": "through PyTorch"}
+    assert status()["using_gpu"] is True and "the turbo model runs on CUDA (through PyTorch)" in caplog.text
+
+
+def test_turbo_goes_back_to_the_onnx_cpu_engine_when_the_pytorch_gpu_path_fails(monkeypatch, caplog):
+    configure("cpu", fake_ort([CPU]), verify=False)
+    accel._state["torch"] = True
+    loads = Loads(fail_torch=True)
+    with caplog.at_level(logging.WARNING):
+        local_backend(monkeypatch, loads).load("turbo")
+    assert loads.calls == [("turbo", True), ("turbo", False)]
+    turbo = status()["models"]["turbo"]
+    assert turbo["device"] == "cpu" and turbo["fallback"] is True and "out of memory" in turbo["note"]
+    assert status()["fallback"] is True and "failed on the GPU through PyTorch" in caplog.text
+
+
+def test_without_cuda_pytorch_turbo_uses_the_cpu_engine_and_only_says_why_when_cuda_was_asked_for(monkeypatch):
+    ort = fake_ort([CUDA, CPU])
+    configure("auto", ort, verify=False)
+    loads = Loads()
+    local_backend(monkeypatch, loads).load("turbo")
+    assert loads.calls == [("turbo", False)] and status()["models"]["turbo"]["note"] is None
+    configure("cuda", ort, verify=False)
+    local_backend(monkeypatch, loads).load("turbo")
+    note = status()["models"]["turbo"]["note"]
+    assert "PyTorch with CUDA, which is not installed or not working" in note and status()["models"]["turbo"]["fallback"] is False
+
+
+def test_the_turbo_engine_is_always_told_which_backend_to_use(monkeypatch):
+    import sys
+    import types
+
+    from app import tts
+
+    seen = []
+    monkeypatch.setitem(sys.modules, "vieneu", types.SimpleNamespace(Vieneu=lambda **kw: seen.append(kw) or object()))
+    backend = tts.LocalBackend(4, "fp32")
+    backend._load("turbo")
+    backend._load("turbo", torch=True)
+    backend._load("nano")
+    assert seen[0] == {"mode": "v3turbo", "threads": 4, "precision": "fp32", "backend": "onnx"}
+    assert seen[1] == {"mode": "v3turbo", "threads": 4, "precision": "fp32", "backend": "pytorch", "device": "cuda"}
+    assert seen[2] == {"mode": "v3nano", "threads": 4}
+
+
+def test_an_explicit_cuda_is_accepted_when_only_pytorch_has_it(monkeypatch):
+    monkeypatch.setattr(accel, "_torch_installed", lambda: True)
+    monkeypatch.setattr(accel, "torch_cuda_test", lambda: (True, "TORCH 16.0"))
+    s = configure("cuda", fake_ort([CPU]), verify=True)  # this ONNX Runtime has no CUDA, but Turbo does not need it
+    assert s["requested"] == "cuda" and s["torch_cuda"] is True and accel.torch_cuda() is True
+    assert s["providers"] == [CPU]
+    with pytest.raises(DeviceError, match="needs CUDAExecutionProvider"):
+        monkeypatch.setattr(accel, "torch_cuda_test", lambda: (False, "no gpu"))
+        configure("cuda", fake_ort([CPU]), verify=True)
+
+
+def test_a_cpu_choice_keeps_turbo_off_the_gpu(monkeypatch):
+    monkeypatch.setattr(accel, "_torch_installed", lambda: True)
+    monkeypatch.setattr(accel, "torch_cuda_test", lambda: pytest.fail("not needed for the CPU"))
+    assert configure("cpu", fake_ort([CPU])) ["torch_cuda"] is False
+
+
+def test_the_pytorch_gpu_check_runs_in_its_own_process_and_reports_why_it_failed():
+    assert accel.torch_cuda_test(script="print('TORCH 16.0')")[0] is True
+    ok, detail = accel.torch_cuda_test(script="raise SystemExit('torch.cuda.is_available() is False')")
+    assert ok is False and "is_available() is False" in detail
+    assert accel.torch_cuda_test(timeout=0.3, script="import time; time.sleep(5)")[0] is False
+
+
+def test_the_pytorch_path_needs_its_own_files_to_count_as_downloaded(monkeypatch):
+    from app import catalog
+
+    torch_files = {(catalog.TURBO_REPO, f) for f in catalog.TURBO_TORCH_FILES} | {
+        (catalog.MOSS_TORCH_REPO, f) for f in catalog.MOSS_TORCH_FILES}
+    monkeypatch.setattr("huggingface_hub.try_to_load_from_cache",
+                        lambda repo, name, **kw: f"/cache/{repo}/{name}" if (repo, name) in torch_files else None)
+    assert catalog.downloaded("turbo", torch=True) is True and catalog.downloaded("turbo") is False

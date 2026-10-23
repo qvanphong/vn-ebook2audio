@@ -1,12 +1,13 @@
-"""Measure how fast this machine runs a voice model: python -m app.bench --model nano --threads 4"""
+"""Measure how fast this machine runs a voice model: python -m app.bench --model nano --threads 4
+Compare devices on a GPU machine with --device cpu and --device cuda (the report says where the model really ran)."""
 from __future__ import annotations
 
 import argparse
 import os
-import resource
 import sys
 import time
 
+from . import accel, catalog
 from .config import available_cpus
 from .samples import DEFAULT_TEXT
 from .tts import MODEL_MODES, SAMPLE_RATES, ModelPool
@@ -14,7 +15,11 @@ from .tts import MODEL_MODES, SAMPLE_RATES, ModelPool
 CHARS_PER_SECOND = 14.5
 
 
-def peak_mb() -> float:
+def peak_mb() -> float | None:
+    try:
+        import resource  # not available on Windows
+    except ImportError:
+        return None
     rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     return rss / (1024 * 1024 if sys.platform == "darwin" else 1024)
 
@@ -25,8 +30,14 @@ def main() -> None:
     ap.add_argument("--precision", choices=["fp32", "int8"], default="fp32", help="turbo only")
     ap.add_argument("--threads", type=int, default=0, help="0 means every available CPU")
     ap.add_argument("--runs", type=int, default=3)
+    ap.add_argument("--device", default="auto", help="auto (default), cpu, cuda, directml, coreml or openvino")
     a = ap.parse_args()
     threads = a.threads or available_cpus()
+    catalog.configure_cache_env()
+    try:
+        accel.configure(a.device)
+    except accel.DeviceError as exc:
+        raise SystemExit(str(exc))
 
     t0 = time.time()
     pool = ModelPool.local(threads, a.precision)
@@ -41,7 +52,11 @@ def main() -> None:
         rtfs.append(spent / seconds)
     rtf = sum(rtfs) / len(rtfs)
     print(f"model {a.model} ({a.precision if a.model == 'turbo' else 'fp32'}), {threads} threads, cpus visible {os.cpu_count()}")
-    print(f"load {load:.1f} s, memory peak {peak_mb():.0f} MB")
+    peak = peak_mb()
+    placed = accel.status()["models"].get(a.model, {})
+    print(f"device {placed.get('device', '?')}" + (f" ({placed['note']})" if placed.get("note") else "")
+          + f", requested {a.device}")
+    print(f"load {load:.1f} s" + (f", memory peak {peak:.0f} MB" if peak is not None else ""))
     print(f"speed: RTF {rtf:.2f} (seconds of work per second of audio; below 1.0 is faster than real time)")
     for chars, label in ((300_000, "300,000 characters (a short novel)"), (1_000_000, "1,000,000 characters (a long one)")):
         hours = chars / CHARS_PER_SECOND / 3600

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import subprocess
@@ -14,6 +15,8 @@ import numpy as np
 
 from . import accel, catalog, onnxpaths
 from .model import Voice
+
+log = logging.getLogger("tts")
 
 MODEL_MODES = {"turbo": "v3turbo", "nano": "v3nano", "english": "supertonic"}
 SAMPLE_RATES = {"turbo": 48000, "nano": 24000, "english": 44100}
@@ -186,26 +189,49 @@ class LocalBackend:
     def __init__(self, threads: int, precision: str):
         self.threads, self.precision = threads, precision
 
+    @staticmethod
+    def _on_torch(model: str) -> bool:
+        """Turbo goes to the GPU through PyTorch, not ONNX Runtime; true when this machine can do that."""
+        return model == "turbo" and accel.torch_cuda()
+
     def downloaded(self, model: str) -> bool:
-        return catalog.downloaded(model, self.precision)
+        return catalog.downloaded(model, self.precision, self._on_torch(model))
 
     def bytes_on_disk(self, model: str) -> int:
-        return catalog.bytes_on_disk(model, self.precision)
+        return catalog.bytes_on_disk(model, self.precision, self._on_torch(model))
 
     def supported(self, model: str) -> bool:
         return catalog.package_installed(model)
 
     def load(self, model: str):
         onnxpaths.install()
+        cpu_note = None
+        if self._on_torch(model):
+            try:
+                handle = self._load(model, torch=True)
+                handle.infer(SMOKE_TEXT[model])
+                accel.record(model, accel.TORCH_CUDA, False, "through PyTorch")
+                return handle
+            except Exception as exc:  # noqa: BLE001: any failure of the GPU path means "use the CPU engine"
+                log.warning("the %s model failed on the GPU through PyTorch (%s: %s); loading it on the CPU instead",
+                            model, type(exc).__name__, str(exc)[:160])
+                cpu_note = f"the PyTorch GPU path failed ({type(exc).__name__}: {str(exc)[:100]}), so it runs on the CPU"
+        elif model == "turbo":  # no note unless the GPU was asked for by name
+            cpu_note = ("Turbo uses the GPU through PyTorch with CUDA, which is not installed or not working here, so it "
+                        "runs on the CPU") if accel.status()["requested"] == "cuda" else ""
         return accel.load_checked(lambda: self._load(model), lambda handle: handle.infer(SMOKE_TEXT[model]), model,
-                                  catalog.CATALOG[model].accelerators)
+                                  catalog.CATALOG[model].accelerators, cpu_note, cpu_fallback=cpu_note is not None
+                                  and cpu_note.startswith("the PyTorch GPU path failed"))
 
     def device(self, model: str) -> dict:
         """Where this model runs, or will be tried: its own record once loaded, else the plan for this machine."""
         done = accel.status()["models"].get(model)
-        return done or {"device": accel.device_for(catalog.CATALOG[model].accelerators), "fallback": False, "note": None}
+        if done:
+            return done
+        planned = "cuda" if self._on_torch(model) else accel.device_for(catalog.CATALOG[model].accelerators)
+        return {"device": planned, "fallback": False, "note": None}
 
-    def _load(self, model: str):
+    def _load(self, model: str, torch: bool = False):
         if model == "english":
             try:
                 from supertonic import TTS
@@ -214,7 +240,11 @@ class LocalBackend:
             return SupertonicHandle(TTS(intra_op_num_threads=self.threads))
         from vieneu import Vieneu
 
-        kwargs = {"precision": self.precision} if model == "turbo" else {}
+        kwargs = {}
+        if model == "turbo":  # always say which engine: VieNeu's own choice would follow whatever torch is installed
+            kwargs = {"precision": self.precision, "backend": "pytorch" if torch else "onnx"}
+            if torch:
+                kwargs["device"] = "cuda"
         return LocalHandle(model, Vieneu(mode=MODEL_MODES[model], threads=self.threads, **kwargs))
 
 
