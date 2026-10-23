@@ -111,6 +111,7 @@ worker download its model (about 390 MB), then render both chapters.
 | `DATA_DIR` | `/data` | Where it keeps cloned voices and its voice lists |
 | `HF_HOME`, `SUPERTONIC_CACHE_DIR` | defaults | Where models are downloaded |
 | `TTS_THREADS`, `TTS_PRECISION` | as for the server | How the models run |
+| `TTS_DEVICE` | `cpu` | `cpu`, `auto`, `cuda`, `directml`, `coreml` or `openvino` (see [Using a GPU](#using-a-gpu)); the command-line flag `--device` overrides it |
 
 The worker needs ffmpeg for cloned voices. A worker is not a server: it has no page, no library and no queue.
 
@@ -125,6 +126,69 @@ network you trust, or put both behind a VPN or a TLS proxy.
 Each request to a worker is retried for about 20 seconds (four tries with growing pauses) before that machine is
 dropped from the job. Start it again and press **Retry** on the job. With the worker off, the voice list still shows
 from the saved copy, and a sample fails with a clear message after the same 20 seconds.
+
+## Using a GPU
+
+By default the models run on the CPU. To use a GPU, set the device on the machine that runs the models (a worker, or
+this server for "This server"):
+
+| `TTS_DEVICE` (or `--device`) | Uses | ONNX Runtime package it needs |
+|---|---|---|
+| `cpu` (default) | The CPU | `onnxruntime` |
+| `auto` | A GPU if one is available (CUDA, then DirectML), otherwise the CPU | whichever you installed |
+| `cuda` | An NVIDIA GPU | `onnxruntime-gpu`, plus CUDA 12 and cuDNN 9 on the machine |
+| `directml` | Any GPU on Windows (NVIDIA, AMD, Intel) | `onnxruntime-directml` |
+| `coreml` | Apple silicon | the ordinary macOS `onnxruntime` |
+| `openvino` | Intel | `onnxruntime-openvino` |
+
+```bash
+TTS_DEVICE=cuda python -m app.worker           # or: python -m app.worker --device cuda
+```
+
+The flag only changes which hardware the model libraries are told to use; the ONNX Runtime package decides what is
+possible, and the ordinary `onnxruntime` package can only use the CPU. The two packages cannot be installed together:
+`pip uninstall onnxruntime` first, then `pip install onnxruntime-gpu==1.22.0` (or `onnxruntime-directml`).
+
+**Asking for a device that is not there is an error at start**, with a message naming the package to install, so a
+worker never carries on silently on the CPU after you asked for a GPU. `auto` is the forgiving choice.
+
+**The GPU is tried before it is relied on.** At start, a GPU choice is tested on a tiny model in a separate process,
+because a missing or broken GPU driver can crash the process outright instead of raising an error. If the test fails:
+an explicit choice (`cuda`, `directml`, ...) stops the start with the reason ("CUDAExecutionProvider could not start:
+the test process crashed (signal 11), which usually means no working GPU driver"), and `auto` logs a warning and uses
+the CPU. With `restart: unless-stopped` a container that cannot get its GPU therefore restarts in a loop with that
+message in its log, which is the signal to fix the driver or the container's GPU access.
+
+**Docker, NVIDIA:** `Dockerfile.worker-cuda` (linux/amd64) is built on an NVIDIA CUDA runtime image with
+`onnxruntime-gpu`, and `docker-compose.worker-gpu.yml` starts it with the GPU attached and `TTS_DEVICE=cuda`:
+
+```bash
+WORKER_TOKEN=choose-a-secret docker compose -f docker-compose.worker-gpu.yml up -d --build
+```
+
+Docker needs access to the GPU: the NVIDIA Container Toolkit on Linux, or Docker Desktop with the WSL 2 backend and a
+current NVIDIA driver on Windows. **Docker on a Mac cannot use a GPU, and AMD or Intel GPUs on Windows cannot be used
+from a Linux container**; for those, run the worker directly on Windows with `onnxruntime-directml` and
+`TTS_DEVICE=directml`.
+
+**Checking that it is really in use.** Settings → Voice machines shows each machine's hardware next to its status:
+"CPU", "GPU (CUDA)", or in red "asked for cuda but running on the CPU". The same information is in the worker's
+`/health` (`device`). It is confirmed only after a model has loaded, because that is when the sessions are created.
+
+**A model that fails on the GPU falls back to the CPU.** When a GPU is requested, each model is given a short first run
+as soon as it loads. A GPU provider can accept a model and then fail when it runs, and a model that fails this check is
+loaded again on the CPU, with a warning in the log and the red status above. The other models keep trying the GPU.
+
+What was and was not tested: the device setting, the provider rewriting, the status, the self-test and the fallback are
+covered by tests with a stand-in for ONNX Runtime, and the self-test's hand-written model runs on the real runtime. On an
+Apple silicon Mac, `coreml` was tried with the real Nano model: CoreML accepted the model and then failed on its first
+run, the fallback reloaded it on the CPU, and speech worked. The CUDA image (`Dockerfile.worker-cuda`, about 5 GB) was
+built, contains only `onnxruntime-gpu` 1.22.0 and lists the CUDA provider; run on a Mac (an emulated amd64 container with
+no GPU), `TTS_DEVICE=cuda` stopped at start with the message above, `auto` used the CPU, and the English model spoke
+normally on the CPU path. **No real GPU was available, so CUDA and DirectML are untested on hardware, and no speed-up
+was measured.** Do not assume a
+GPU is faster for every model: these models are small, and the Turbo model runs many tiny steps for each audio frame,
+which a GPU handles less well than a large batch.
 
 ## Workers that only take phonemes
 

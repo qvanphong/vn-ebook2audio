@@ -93,7 +93,7 @@ has a `state` of `waiting`, `preparing` (with `detail` saying what: loading, dow
 | `GET /api/engine` | The saved list: `{local: {available, enabled, models}, workers: [{id, name, url, has_token, enabled}]}`. Tokens are never returned |
 | `PUT /api/engine` | `{local_enabled, workers: [{id?, name, url, token?, clear_token?, enabled}]}`. A worker without `id` is new; a blank `token` keeps the saved one; `clear_token` removes it. 422 for a bad address, a duplicate, `local_enabled` without the packages, or nothing switched on |
 | `POST /api/engine/test` | `{worker_url, worker_token?, worker_id?}` → `{ok, latency_ms, name, models, states, capabilities}` or `{ok: false, error}` |
-| `GET /api/workers` | Every machine live: `{id, name, kind, url?, enabled, online, latency_ms?, error, models, capabilities}`. `models` maps each model to `{ready, state, downloaded, supported, bytes, size_mb, error}` (or just `{ready}` for an old worker). Worker answers are reused for 4 seconds |
+| `GET /api/workers` | Every machine live: `{id, name, kind, url?, enabled, online, latency_ms?, error, models, capabilities}`. `device` is `{requested, providers, active, using_gpu, fallback}` (what the machine runs its models on; `null` for an old worker). `models` maps each model to `{ready, state, downloaded, supported, bytes, size_mb, error}` (or just `{ready}` for an old worker). Worker answers are reused for 4 seconds |
 | `POST /api/workers/{id}/models/{model}` | Ask a machine to download and load a model now (202). 404 for an unknown machine or model |
 
 ## Calibre-Web
@@ -120,7 +120,7 @@ needs `Authorization: Bearer <token>` (401 otherwise). The server also understan
 
 | Call | Meaning |
 |---|---|
-| `GET /health` | `{ok, protocol: 3, name, models: {<id>: {ready}}, capabilities: {synthesize, infer: ["nano"], clone}}`. `synthesize: false` means the worker takes phonemes only (use `/infer`) |
+| `GET /health` | `{ok, protocol: 3, name, device, models: {<id>: {ready}}, capabilities: {synthesize, infer: ["nano"], clone}}`. `synthesize: false` means the worker takes phonemes only (use `/infer`) |
 | `GET /models` | `{models: {<id>: {state, ready, loading, downloaded, supported, bytes, size_mb, error}}}`. `state`: `ready` (in memory), `loading`, `downloading` (`bytes` arrived so far), `downloaded` (on disk, not loaded), `absent`, `error`. `supported: false` means it could never run this model |
 | `POST /models/{model}/ensure` | 202 at once; the worker downloads and loads the model in the background. Asking again changes nothing. 400 unknown model, 501 if not supported |
 | `GET /voices?model=` | `{voices: [{id, label, cloned}], ready, error}`; 503 `{"detail": {"loading": true}}` while the model loads (asking also starts the load) |

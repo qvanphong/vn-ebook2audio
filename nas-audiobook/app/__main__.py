@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import argparse
 import logging
 import os
 import threading
 
 import uvicorn
 
-from . import catalog
+from . import accel, catalog
 from .api import create_app
 from .config import Settings
 from .engine_config import ConfigError, EngineConfigStore, EngineController, default_config, pool_factory
@@ -37,8 +38,15 @@ def build_engine(settings: Settings) -> EngineController:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    ap = argparse.ArgumentParser(description="ebook2audio server.")
+    ap.add_argument("--device", help="cpu (default), auto, cuda, directml, coreml or openvino; overrides TTS_DEVICE")
+    args = ap.parse_args()
     catalog.configure_cache_env()
     settings = Settings.from_env()
+    try:
+        accel.configure(args.device or settings.device)
+    except accel.DeviceError as exc:
+        raise SystemExit(str(exc))
     settings.ensure_dirs()
     store = JobStore(settings.db)
     engine = build_engine(settings)

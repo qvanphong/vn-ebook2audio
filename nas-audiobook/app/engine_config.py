@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Callable, Sequence
 from urllib.parse import urlparse
 
-from . import catalog
+from . import accel, catalog
 from .fleet import LOCAL_ID, Node, WorkerConfig, probe
 from .tts import CloneStore, ModelPool
 from .remote import WorkerError
@@ -224,12 +224,13 @@ class EngineController:
             if n.config is None:
                 models = n.pool.status()
                 out.append({"id": n.id, "name": n.label, "kind": "local", "enabled": n.enabled, "online": local_available(),
-                            "models": models, "capabilities": {"synthesize": True, "clone": True},
+                            "models": models, "device": accel.status(), "capabilities": {"synthesize": True, "clone": True},
                             "error": None if local_available() else "the voice models are not installed on this server"})
                 continue
             p = probes[n.id]
             out.append({"id": n.id, "name": n.label, "kind": "remote", "url": n.config.url, "enabled": n.enabled,
                         "online": p["ok"], "latency_ms": p.get("latency_ms"), "error": p.get("error"),
+                        "device": p.get("device"),
                         "models": p["states"] if p.get("states") else
                                   {m: {"ready": ready} for m, ready in p.get("models", {}).items()},
                         "capabilities": p.get("capabilities")})

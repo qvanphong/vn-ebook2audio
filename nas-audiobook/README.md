@@ -102,6 +102,7 @@ Environment variables on the `ebook2audio` service. Uploads can override model, 
 | `TTS_DIALOG_VOICE` | none | A second voice for dialogue. Quoted speech of 3+ words (`“…”`, `«…»`, `"…"`) and lines starting with a dash are read by it. Unset means one voice for everything |
 | `TTS_PRECISION` | `fp32` | Turbo only. `int8` is 4x smaller and meant for CPUs with VNNI. It gave no speedup on the Apple CPU I tried |
 | `TTS_TEMPERATURE` | `0.8` | Higher is more expressive and less stable |
+| `TTS_DEVICE` | `cpu` | `cpu`, `auto`, `cuda`, `directml`, `coreml` or `openvino`: the hardware the models run on (see `../docs/workers.md`, "Using a GPU"). Also `--device` on `python -m app` and `python -m app.worker` |
 | `TTS_THREADS` | all CPUs | ONNX threads. Leaving the runtime default was 2x slower in my Docker test |
 | `READ_TITLES` | `1` | Speak each chapter title before its text |
 | `PRELOAD_MODELS` | `none` | Comma list of models (`nano`, `turbo`, `english`) to load at start. By default the server and the workers load nothing until a model is needed; an unknown name stops the start with a message |

@@ -47,6 +47,7 @@ Not done, or not verified (details in the pages above):
 - The Calibre-Web integration was tested against a stand-in server and, for browsing, covers and import, against one real Calibre-Web instance; search and paging on a real instance were not tried.
 - No Android worker app exists; a speed and accuracy experiment on a Pixel 8 Pro showed it is feasible for the Nano
   model.
+- GPU support (`TTS_DEVICE`) is tested with a stand-in for ONNX Runtime and, for CoreML, on a Mac; CUDA and DirectML were not run on real hardware and no GPU speed was measured.
 - Speed was measured on an Apple M1 Pro and a Pixel 8 Pro, not on a small NAS CPU such as an Intel N100.
 - I have not listened to the audio from the int8 phone model, the English model, or output made on a second machine;
   English was checked with a speech recogniser, which measures clarity, not how it sounds.

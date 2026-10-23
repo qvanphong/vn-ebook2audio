@@ -12,13 +12,14 @@ from typing import Protocol
 
 import numpy as np
 
-from . import catalog
+from . import accel, catalog
 from .model import Voice
 
 MODEL_MODES = {"turbo": "v3turbo", "nano": "v3nano", "english": "supertonic"}
 SAMPLE_RATES = {"turbo": 48000, "nano": 24000, "english": 44100}
 NO_CLONE = frozenset({"english"})  # models with a fixed set of voices
 ENGLISH_STEPS = 8
+SMOKE_TEXT = {"nano": "Xin chào.", "turbo": "Xin chào.", "english": "Hello."}  # a first run that proves a model works
 REFERENCE_SECONDS = 15
 PRECISIONS = ("fp32", "int8")
 
@@ -190,6 +191,9 @@ class LocalBackend:
         return catalog.package_installed(model)
 
     def load(self, model: str):
+        return accel.load_checked(lambda: self._load(model), lambda handle: handle.infer(SMOKE_TEXT[model]))
+
+    def _load(self, model: str):
         if model == "english":
             try:
                 from supertonic import TTS

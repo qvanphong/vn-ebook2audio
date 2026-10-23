@@ -2,6 +2,7 @@
 library (a NAS) can hand the heavy work to a faster machine. Start it with: python -m app.worker"""
 from __future__ import annotations
 
+import argparse
 import hmac
 import logging
 import os
@@ -15,7 +16,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Response, UploadFile
 from pydantic import BaseModel
 
-from . import catalog, tts
+from . import accel, catalog, tts
 from .config import Settings
 
 PROTOCOL = 3
@@ -64,7 +65,7 @@ def create_worker_app(pool: tts.ModelPool, default_model: str, token: str | None
 
     @app.get("/health")
     def health():
-        return {"ok": True, "protocol": PROTOCOL, "name": name, "models": {m: {"ready": pool.ready(m)} for m in tts.MODEL_MODES},
+        return {"ok": True, "protocol": PROTOCOL, "name": name, "device": accel.status(), "models": {m: {"ready": pool.ready(m)} for m in tts.MODEL_MODES},
                 "capabilities": {"synthesize": text_ok, "infer": list(INFER_MODELS), "clone": text_ok}}
 
     @app.get("/models")
@@ -157,8 +158,15 @@ def create_worker_app(pool: tts.ModelPool, default_model: str, token: str | None
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    ap = argparse.ArgumentParser(description="A voice worker for ebook2audio.")
+    ap.add_argument("--device", help="cpu (default), auto, cuda, directml, coreml or openvino; overrides TTS_DEVICE")
+    args = ap.parse_args()
     catalog.configure_cache_env()
     settings = Settings.from_env()
+    try:
+        accel.configure(args.device or settings.device)
+    except accel.DeviceError as exc:
+        raise SystemExit(str(exc))
     token = os.environ.get("WORKER_TOKEN") or None
     pool = tts.ModelPool.local(settings.threads, settings.precision, tts.CloneStore(settings.voices_dir), settings.voice_cache)
     try:

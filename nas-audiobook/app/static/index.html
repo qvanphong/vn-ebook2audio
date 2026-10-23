@@ -884,13 +884,23 @@ function renderMachines() {
       <div class="mstat" data-key="${i}"></div><div class="mmodels" data-key="${i}"></div></div>`).join("");
   paintStatus();
 }
+/* what hardware a machine runs its models on, and whether a GPU that was asked for is really in use */
+function deviceText(d) {
+  const name = (p) => p.replace("ExecutionProvider", "");
+  if (d.fallback) return { text: `asked for ${d.requested} but running on the CPU`, bad: true };
+  if (d.using_gpu) return { text: `GPU (${name(d.active[0])})` };
+  if (d.requested !== "cpu") return { text: `${d.requested} requested, confirmed once a model loads` };
+  return { text: "CPU" };
+}
 function describeLive(m) {
   if (!m.online) return { text: `Offline: ${m.error || "no answer"}`, cls: "bad" };
   const models = m.kind === "local" || Object.values(m.models || {}).some((v) => v.state) ? "" :
     Object.entries(m.models || {}).map(([k, v]) => `${k} ${modelWord(v)}`).join(", ");
   const caps = m.capabilities || {};
+  const dev = m.device ? deviceText(m.device) : null;
   const notes = [caps.synthesize === false ? "takes phonemes only (this server does the text work)" : "", caps.clone === false ? "cannot clone voices" : ""].filter(Boolean).join("; ");
-  return { text: `Online${m.latency_ms != null ? ` · ${m.latency_ms} ms` : ""}${models ? ` · ${models}` : ""}${notes ? ` · ${notes}` : ""}`, cls: "good" };
+  return { text: `Online${m.latency_ms != null ? ` · ${m.latency_ms} ms` : ""}${dev ? ` · ${dev.text}` : ""}${models ? ` · ${models}` : ""}${notes ? ` · ${notes}` : ""}`,
+           cls: dev && dev.bad ? "bad" : "good" };
 }
 /* what a machine has of each model, with a button to fetch what it lacks */
 const catalogLabel = (id) => (state.catalog.find((c) => c.id === id) || { label: id }).label;

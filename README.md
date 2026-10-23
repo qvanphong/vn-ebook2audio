@@ -33,7 +33,9 @@ computers you add as **voice workers**, or on all of them at once, sharing each 
   a worker that fails is dropped without stopping the book.
 - **Calibre-Web built in.** Browse your Calibre-Web library from the page, preview a book there, and send it straight
   into Convert, with Calibre-Web's own cover.
-- **Runs in Docker or directly.** Two images (server and worker), and the service starts with no model loaded.
+- **Runs in Docker or directly.** Two images (server and worker), and the service starts with no model loaded. An
+  NVIDIA GPU image (about 5 GB) and a `--device` flag let a worker use a GPU, with a start-up check and a
+  fall-back to the CPU (not yet run on real GPU hardware).
 
 ## Screenshots
 

@@ -1,0 +1,42 @@
+# A voice worker that runs the speech models on an NVIDIA GPU (CUDA). linux/amd64 only.
+#
+# The machine needs an NVIDIA driver, and Docker needs access to the GPU:
+#   - Linux: the NVIDIA Container Toolkit
+#   - Windows: Docker Desktop with the WSL 2 backend and a current NVIDIA driver (the GPU is shared with the container)
+# Docker on a Mac cannot use a GPU. AMD and Intel GPUs on Windows need the worker run directly on Windows with
+# onnxruntime-directml, not in a container (see docs/workers.md).
+#
+#   docker build -f Dockerfile.worker-cuda -t ebook2audio-worker-cuda .
+#   docker run -d --gpus all -p 8780:8780 -e WORKER_TOKEN=choose-a-secret -e TTS_DEVICE=cuda -v worker-data:/data ebook2audio-worker-cuda
+#
+# The Settings tab of the server shows "GPU (CUDA)" for this worker once a model has loaded on it.
+FROM --platform=linux/amd64 nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3 python3-venv ffmpeg libsndfile1 \
+ && rm -rf /var/lib/apt/lists/*
+RUN python3 -m venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
+
+WORKDIR /srv
+COPY requirements.txt requirements-engine-gpu.txt ./
+# vieneu depends on the CPU onnxruntime; the GPU build replaces it (both ship the same module, so only one may stay).
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-engine-gpu.txt \
+ && pip uninstall -y onnxruntime \
+ && pip install --no-cache-dir --force-reinstall --no-deps onnxruntime-gpu==1.22.0
+COPY app app
+
+ENV DATA_DIR=/data \
+    HF_HOME=/data/cache/hf \
+    WORKER_PORT=8780 \
+    TTS_DEVICE=cuda \
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    PYTHONUNBUFFERED=1
+VOLUME /data
+EXPOSE 8780
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD python -c "import os,urllib.request as u; t=os.environ.get('WORKER_TOKEN'); u.urlopen(u.Request('http://127.0.0.1:%s/health' % os.environ.get('WORKER_PORT', '8780'), headers={'Authorization': 'Bearer ' + t} if t else {}), timeout=3)" || exit 1
+
+CMD ["python", "-m", "app.worker"]

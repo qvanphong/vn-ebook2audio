@@ -70,6 +70,6 @@ def probe(url: str, token: str | None, timeout: float = PROBE_SECONDS) -> dict:
         except (httpx.TransportError, ValueError, KeyError):
             pass
     return {"ok": True, "latency_ms": round((time.monotonic() - started) * 1000), "name": health.get("name"),
-            "states": states,
+            "states": states, "device": health.get("device"),
             "models": {m: bool(health.get("models", {}).get(m, {}).get("ready")) for m in MODEL_MODES},
             "capabilities": health.get("capabilities") or {"synthesize": True, "infer": [], "clone": True}}
