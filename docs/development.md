@@ -61,6 +61,7 @@ answers OPDS requests.
 | `test_english.py`, `test_english_real.py` | The English model, language choice, abbreviations |
 | `test_startup.py` | The server and workers start with no model loaded |
 | `test_requirements.py` | The requirements files cover what the code imports (worker, server), and agree on versions |
+| `test_onnxpaths.py` | Loading models whose weights sit in another folder of the Hugging Face cache (newer ONNX Runtime) |
 | `test_accel.py` | The device setting (CPU or GPU), provider rewriting, status, fallback to the CPU |
 | `test_calibre.py` | The Calibre-Web client and its API |
 

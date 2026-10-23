@@ -170,6 +170,10 @@ python -m pip uninstall -y onnxruntime
 python -m pip install --force-reinstall "onnxruntime-gpu[cuda,cudnn]==1.22.0"
 ```
 
+Do **not** install `vieneu[cuda]` for this: that extra is for VieNeu's PyTorch path (it pulls in `torch`, `transformers` and
+more, several gigabytes) and these ONNX models do not use it. "needs CUDAExecutionProvider" means the ONNX Runtime package
+is the CPU one; the fix is `onnxruntime-gpu`, as above.
+
 The `[cuda,cudnn]` extras install CUDA 12 and cuDNN 9 as Python packages, and the worker asks ONNX Runtime to find them
 before it starts (`preload_dlls`). If you installed the CUDA toolkit and cuDNN yourself instead, their folders must be
 on the `PATH`. With only the ordinary `onnxruntime` installed, `TTS_DEVICE=cuda` stops with "needs

@@ -38,6 +38,8 @@
 | `jobs.py` | `JobStore` (SQLite), `Runner`, `process()`, `Conversion` (lanes), `Progress` |
 | `tts.py` | `ModelPool`, backends, handles (`LocalHandle`, `SupertonicHandle`), clone store, `prepare()` |
 | `catalog.py` | The model catalogue, "is it downloaded", download progress, cache folders |
+| `accel.py` | Which hardware runs the models (CPU or GPU): provider choice, start-up test, fallback, status |
+| `onnxpaths.py` | Lets newer ONNX Runtime load models whose weights are symlinked elsewhere in the Hugging Face cache |
 | `engine_config.py` | `EngineController`: the machine list, its saved form, live status |
 | `fleet.py` | `Node`, `WorkerConfig`, and the `probe()` of a worker |
 | `remote.py` | `RemoteBackend`: talks to a worker (retries, ensure-model, phoneme path) |

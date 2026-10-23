@@ -12,7 +12,7 @@ from typing import Protocol
 
 import numpy as np
 
-from . import accel, catalog
+from . import accel, catalog, onnxpaths
 from .model import Voice
 
 MODEL_MODES = {"turbo": "v3turbo", "nano": "v3nano", "english": "supertonic"}
@@ -191,6 +191,7 @@ class LocalBackend:
         return catalog.package_installed(model)
 
     def load(self, model: str):
+        onnxpaths.install()
         return accel.load_checked(lambda: self._load(model), lambda handle: handle.infer(SMOKE_TEXT[model]))
 
     def _load(self, model: str):
