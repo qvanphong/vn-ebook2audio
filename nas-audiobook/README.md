@@ -118,9 +118,10 @@ Environment variables on the `ebook2audio` service. Uploads can override model, 
 | Call | Purpose |
 |---|---|
 | `POST /api/jobs` (multipart `file`, optional `model`, `voice`, `dialog_voice`, `temperature`, `read_titles`) | Queue a book |
-| `GET /api/jobs`, `GET /api/jobs/{id}` | State: `queued`, `running`, `assembling`, `done`, `error`, `cancelled`, with per-chapter progress and `workers`: for each machine its state (`waiting`, `preparing`, `rendering`, `idle`, `done`, `failed`), what it is doing, chapter and clip, chapters done and any error |
-| `POST /api/jobs/{id}/cancel`, `/retry`; `DELETE /api/jobs/{id}` | Control |
-| `GET /api/engine`, `PUT /api/engine` (`{local_enabled, workers: [{id?, name, url, token?, clear_token?, enabled}]}`) | The saved list of machines. Tokens are never returned (`has_token`). 422 for a bad address, a duplicate, or nothing switched on |
+| `GET /api/jobs`, `GET /api/jobs/{id}` | State: `queued`, `running`, `assembling`, `done`, `error`, `cancelled`, `paused`, with per-chapter progress and `workers`: for each machine its state (`waiting`, `preparing`, `rendering`, `idle`, `done`, `failed`), what it is doing, chapter and clip, chapters done and any error |
+| `POST /api/jobs/{id}/cancel`, `/pause`, `/retry`; `POST /api/jobs/clear` `{states}`; `DELETE /api/jobs/{id}` | Control. `retry` also resumes a paused job; `clear` removes done, error, cancelled or paused jobs from the list |
+| `GET /api/presets`, `POST /api/presets`, `DELETE /api/presets/{id}` | Voice presets: a saved engine, voices and settings |
+| `GET /api/engine`, `PUT /api/engine` (`{local_enabled, local_batch?, workers: [{id?, name, url, token?, clear_token?, enabled, batch?}]}`) | The saved list of machines. Tokens are never returned (`has_token`). `batch` is the texts per request, 1 to 32. 422 for a bad address, a duplicate, a batch outside 1 to 32, or nothing switched on |
 | `POST /api/engine/test` (`{worker_url, worker_token?, worker_id?}`) | Is that address a worker, is the token right, which models it has |
 | `GET /api/models`, `POST /api/workers/{id}/models/{model}` | The catalogue of models with a rough download size, and a request for one machine to download and load a model now |
 | `GET /api/workers` | Every machine with whether it answers now (`online`, `latency_ms`, `error`), the models it has loaded and its capabilities. Answers are reused for 4 seconds |

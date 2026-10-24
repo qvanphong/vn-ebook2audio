@@ -41,7 +41,9 @@ belong to.
 |---|---|
 | `GET /api/jobs`, `GET /api/jobs/{id}` | Jobs, newest first |
 | `POST /api/jobs/{id}/cancel` | A queued job is cancelled at once; a running one stops after the sentence in progress |
-| `POST /api/jobs/{id}/retry` | An `error` or `cancelled` job goes back to `queued`; finished chapters are reused |
+| `POST /api/jobs/{id}/pause` | A queued job waits as `paused`; a running one stops after the sentence in progress and becomes `paused`. Finished chapters are kept |
+| `POST /api/jobs/{id}/retry` | An `error`, `cancelled` or `paused` job goes back to `queued`; finished chapters are reused. This is how a paused job resumes |
+| `POST /api/jobs/clear` `{states}` | Remove jobs from the list. `states` is any of `done`, `error`, `cancelled`, `paused`; 422 for anything else. Returns `{removed}`. Audio is kept, and active jobs are never removed |
 | `DELETE /api/jobs/{id}` | Remove from the list (409 while active) |
 
 A job:
@@ -59,7 +61,7 @@ A job:
 }
 ```
 
-`state` is one of `queued`, `running`, `assembling` (reserved), `done`, `error`, `cancelled`. Each entry of `workers`
+`state` is one of `queued`, `running`, `assembling` (reserved), `done`, `error`, `cancelled`, `paused`. Each entry of `workers`
 has a `state` of `waiting`, `preparing` (with `detail` saying what: loading, downloading, sending a cloned voice),
 `rendering`, `idle`, `done` or `failed` (with `error`). `selected` is the number of chapters chosen, or `null`.
 
@@ -91,10 +93,21 @@ has a `state` of `waiting`, `preparing` (with `detail` saying what: loading, dow
 | Call | Meaning |
 |---|---|
 | `GET /api/engine` | The saved list: `{local: {available, enabled, models}, workers: [{id, name, url, has_token, enabled}]}`. Tokens are never returned |
-| `PUT /api/engine` | `{local_enabled, workers: [{id?, name, url, token?, clear_token?, enabled}]}`. A worker without `id` is new; a blank `token` keeps the saved one; `clear_token` removes it. 422 for a bad address, a duplicate, `local_enabled` without the packages, or nothing switched on |
+| `PUT /api/engine` | `{local_enabled, local_batch?, workers: [{id?, name, url, token?, clear_token?, enabled, batch?}]}`. `batch` is the texts per request (1 to 32, default 1), also for this server as `local_batch`. A worker without `id` is new; a blank `token` keeps the saved one; `clear_token` removes it. 422 for a bad address, a duplicate, a batch outside 1 to 32, `local_enabled` without the packages, or nothing switched on |
 | `POST /api/engine/test` | `{worker_url, worker_token?, worker_id?}` → `{ok, latency_ms, name, models, states, capabilities}` or `{ok: false, error}` |
 | `GET /api/workers` | Every machine live: `{id, name, kind, url?, enabled, online, latency_ms?, error, models, capabilities}`. `device` is `{requested, providers, active, using_gpu, fallback}` (what the machine runs its models on; `null` for an old worker). `models` maps each model to `{ready, state, downloaded, supported, bytes, size_mb, error}` (or just `{ready}` for an old worker). Worker answers are reused for 4 seconds |
 | `POST /api/workers/{id}/models/{model}` | Ask a machine to download and load a model now (202). 404 for an unknown machine or model |
+
+## Presets
+
+A preset is a saved engine (model), narrator, dialogue voice, expressiveness and titles setting, kept in
+`data/config/presets.json`. Names are unique and do not depend on capitals.
+
+| Call | Meaning |
+|---|---|
+| `GET /api/presets` | `[{id, name, model, voice, dialog_voice, temperature, read_titles}]` |
+| `POST /api/presets` `{id?, name, model, voice?, dialog_voice?, temperature?, read_titles?}` | Save a preset. With `id` it updates that one (404 if it is gone); without, a preset with the same name is updated, else one is created. 422 for an unknown model, a name that is empty or longer than 60 characters, or a name another preset has |
+| `DELETE /api/presets/{id}` | Remove a preset. 404 if there is none |
 
 ## Calibre-Web
 
@@ -120,10 +133,11 @@ needs `Authorization: Bearer <token>` (401 otherwise). The server also understan
 
 | Call | Meaning |
 |---|---|
-| `GET /health` | `{ok, protocol: 4, name, device, models: {<id>: {ready}}, capabilities: {synthesize, infer: ["nano"], clone}}`. `synthesize: false` means the worker takes phonemes only (use `/infer`) |
+| `GET /health` | `{ok, protocol: 4, name, device, models: {<id>: {ready}}, capabilities: {synthesize, infer: ["nano"], clone, batch}}`. `synthesize: false` means the worker takes phonemes only (use `/infer`). `batch: true` means `/synthesize_batch` is there; a worker without the key takes one text per request |
 | `GET /models` | `{models: {<id>: {state, ready, loading, downloaded, offered, supported, device, bytes, size_mb, error}}}`. `state`: `ready` (in memory), `loading`, `downloading` (`bytes` arrived so far), `downloaded` (on disk, not loaded), `absent`, `error`. `offered: false` means the worker chose not to serve it (`/voices`, `/synthesize` and `/infer` answer 501); `supported: false` means it could never run it; `device` is `{device, fallback, note}`, where the worker runs the model (`cpu`, `cuda`, ...), its own decision |
 | `GET /voices?model=` | `{voices: [{id, label, cloned}], ready, error}`; 503 `{"detail": {"loading": true}}` while the model loads (asking also starts the load) |
 | `POST /synthesize` `{model, text, voice, temperature}` | Text in (up to 6,000 characters). Out: mono 16-bit little-endian PCM, sample rate in the `X-Sample-Rate` header (24000 Nano, 48000 Turbo, 44100 English). 501 if `synthesize` is false |
+| `POST /synthesize_batch` `{model, texts, voice, temperature}` | 1 to 32 texts (each up to 6,000 characters) in one request, when `capabilities.batch` is true. Out: the PCM of every text one after another, the sample rate in `X-Sample-Rate`, and `X-Sample-Counts`, the number of samples of each text in order, comma-separated. A VieneuTTS worker batches them on a GPU; on a CPU it runs them one by one |
 | `POST /infer` `{model, phonemes, voice, steps, cfg, speed, seed}` | One already-phonemised chunk in, one chunk of audio out (PCM as above, trimmed and faded). Nano only; the worker does no text work |
 | `POST /clones` (multipart `name`, `file`), `DELETE /clones/{name}` | Add or remove a cloned voice. 501 if `clone` is false |
 

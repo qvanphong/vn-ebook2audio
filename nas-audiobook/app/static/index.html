@@ -47,8 +47,6 @@
   .voice .btns { display:flex; gap:6px; flex-wrap:wrap; }
   details > summary { cursor:pointer; font-weight:600; }
   .bar { height:6px; background:var(--line); border-radius:3px; overflow:hidden; margin:8px 0 4px; } .bar i { display:block; height:100%; background:var(--accent); }
-  .job .top { display:flex; justify-content:space-between; gap:8px; } .job .top b { overflow-wrap:anywhere; }
-  .job + .job { border-top:1px solid var(--line); margin-top:10px; padding-top:10px; }
   .confirm { position:fixed; left:0; right:0; bottom:0; background:var(--card); border-top:1px solid var(--line); padding:10px 16px; }
   .confirm .in { max-width:880px; margin:0 auto; display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
   .toast { position:fixed; left:50%; transform:translateX(-50%); bottom:76px; background:var(--fg); color:var(--bg); padding:8px 14px; border-radius:999px; font-size:14px; z-index:5; }
@@ -103,6 +101,35 @@
   .cal-row .muted { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .fmt-btns { display:flex; flex-direction:column; gap:6px; }
   dl.facts { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin:8px 0; font-size:14px; } dl.facts dt { color:var(--muted); } dl.facts dd { margin:0; overflow-wrap:anywhere; }
+  .jobs-head { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .jobs-head h2 { margin:0; }
+  details.clear { position:relative; }
+  details.clear > summary { list-style:none; padding:6px 12px; border:1px solid var(--line); border-radius:8px; background:var(--bg); font-size:14px; font-weight:600; }
+  details.clear > summary::-webkit-details-marker { display:none; }
+  .clear-items { position:absolute; right:0; top:calc(100% + 4px); z-index:4; display:flex; flex-direction:column; gap:2px; min-width:200px; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:6px; box-shadow:0 8px 24px rgba(0,0,0,.18); }
+  .clear-items button { display:flex; justify-content:space-between; gap:12px; text-align:left; border:0; background:transparent; }
+  .clear-items button:hover:not(:disabled) { background:var(--soft); }
+  .clear-items .n { color:var(--muted); }
+  .job { --tone:var(--muted); border:1px solid var(--line); border-left:4px solid var(--tone); border-radius:10px; padding:10px 12px; margin-top:8px; background:color-mix(in srgb, var(--tone) 7%, var(--card)); }
+  .job.done { --tone:var(--ok); } .job.working { --tone:var(--accent); } .job.failed { --tone:var(--err); } .job.paused { --tone:var(--warn); }
+  .job .head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; cursor:pointer; }
+  .job .head:focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:6px; }
+  .job .main { flex:1; min-width:0; }
+  .job .t { font-weight:600; overflow-wrap:anywhere; }
+  .job .sub, .job .meta { font-size:13px; overflow-wrap:anywhere; }
+  .job .bar i { background:var(--tone); }
+  .job .ico { font-size:20px; line-height:1.2; flex:0 0 auto; }
+  .job .details { margin-top:10px; border-top:1px solid var(--line); padding-top:10px; }
+  .job .acts { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .job .err { color:var(--err); font-size:13px; margin-top:6px; overflow-wrap:anywhere; }
+  .job .details audio { width:100%; margin-top:8px; }
+  a.btn { display:inline-block; padding:4px 9px; border:1px solid var(--accent); border-radius:8px; color:var(--accent); text-decoration:none; font-size:13px; }
+  .icon-btn { border:0; background:transparent; padding:0 3px; font-size:14px; line-height:1; }
+  .info-item + .info-item { border-top:1px solid var(--line); margin-top:10px; padding-top:10px; }
+  .inline input { flex:1; min-width:0; }
+  .batch { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; margin-top:8px; }
+  .batch > div { flex:0 0 170px; }
+  .batch-n { flex:0 0 130px; }
 </style>
 </head>
 <body>
@@ -159,6 +186,17 @@
 
   <section class="card hidden" id="s3">
     <h2><span class="n">3</span> Choose a voice</h2>
+    <div class="presets">
+      <div class="row">
+        <div><label for="presetSel">Presets</label>
+          <div class="inline"><select id="presetSel"><option value="">Choose a saved preset…</option></select>
+          <button class="small danger" id="presetDel" type="button" disabled>Delete</button></div></div>
+        <div><label for="presetName">Save the engine and voices below as</label>
+          <div class="inline"><input id="presetName" type="text" maxlength="60" placeholder="A name, for example Kể chuyện" autocomplete="off">
+          <button class="small primary" id="presetSave" type="button">Save preset</button></div></div>
+      </div>
+      <div id="presetMsg" class="muted"></div>
+    </div>
     <div class="row">
       <div><label for="model">Model</label>
         <select id="model"><option value="english">English (Supertonic: clear, fast)</option><option value="nano">Vietnamese · Nano (fast)</option><option value="turbo">Vietnamese · Turbo (best quality, slower)</option></select></div>
@@ -230,7 +268,8 @@
   <div id="view-settings" class="hidden">
     <section class="card">
       <h2>Voice machines</h2>
-      <div class="muted">The machines that make the speech: this server and any number of voice workers. In Convert you choose which of them share a book. The library, the files and this page always stay on this server.</div>
+      <div class="muted">The machines that make the speech: this server and any number of voice workers. In Convert you choose which of them share a book. The library, the files and this page always stay on this server.
+        <b>Texts per request</b> sets how many sentences a machine gets in one request. VieNeu works on a batch together on a GPU (Turbo with CUDA); on a CPU it runs them one after another, so there a higher number only saves round trips.</div>
       <div id="machines"></div>
       <div class="actions-row">
         <button type="button" id="addWorker">Add a voice worker</button>
@@ -266,8 +305,18 @@ WORKER_NAME="Laptop" WORKER_TOKEN=choose-a-secret python -m app.worker</pre>
 
   <div id="view-jobs" class="hidden">
     <section class="card">
-      <h2>Jobs</h2>
-      <div id="jobsEmpty" class="muted">Nothing yet. Convert a book and it will show up here.</div>
+      <div class="jobs-head">
+        <h2>Jobs</h2>
+        <details class="clear" id="clearMenu">
+          <summary>Clear</summary>
+          <div class="clear-items">
+            <button type="button" data-clear="succeeded">Succeeded <span class="n">0</span></button>
+            <button type="button" data-clear="failed">Failed <span class="n">0</span></button>
+            <button type="button" data-clear="paused">Paused <span class="n">0</span></button>
+          </div>
+        </details>
+      </div>
+      <div id="jobsEmpty" class="muted" style="margin-top:8px">Nothing yet. Convert a book and it will show up here.</div>
       <div id="jobs"></div>
     </section>
   </div>
@@ -298,6 +347,13 @@ WORKER_NAME="Laptop" WORKER_TOKEN=choose-a-secret python -m app.worker</pre>
     <div class="muted" style="margin-top:8px">This also updates the tags inside every chapter file. The folder keeps its MD5 name, so nothing else changes.</div>
     <div class="actions"><button type="button" id="editCancel">Cancel</button><button type="submit" class="primary">Save</button></div>
   </form>
+</dialog>
+
+<dialog id="dlgInfo" aria-labelledby="infoHead">
+  <h3 id="infoHead">Existing audio</h3>
+  <div class="muted">Audio already made for this chapter in another voice. Nothing here changes. Press ✍️ on the chapter to use these settings.</div>
+  <div id="infoBody"></div>
+  <div class="actions"><button type="button" id="infoClose" class="primary">Close</button></div>
 </dialog>
 
 <div class="toast hidden" id="toast"></div>
@@ -457,9 +513,12 @@ function renderChapters() {
     if (mine.length) withMine++; else if (others.length) withOther++;
     const badge = mine.length ? `<span class="badge has" title="Audio already exists in this voice">✓ has audio</span>`
       : others.length ? `<span class="badge other" title="${esc(others.map((a) => a.voice_label).join(", "))}">audio in another voice</span>` : "";
+    const help = !mine.length && others.length
+      ? `<button type="button" class="icon-btn" data-info="${c.index}" title="What made the audio that already exists" aria-label="What made the audio that already exists">ℹ️</button><button type="button" class="icon-btn" data-copy="${c.index}" title="Use the engine and voice settings of that audio" aria-label="Use the engine and voice settings of that audio">✍️</button>`
+      : "";
     return `<div class="ch ${state.selected.has(c.index) ? "" : "off"}" data-i="${c.index}">
       <input type="checkbox" aria-label="Convert chapter ${c.index + 1}" ${state.selected.has(c.index) ? "checked" : ""}>
-      <div><div class="t">${c.index + 1}. ${esc(c.title || "(untitled)")}${short ? '<span class="badge">short</span>' : ""}${badge}</div>
+      <div><div class="t">${c.index + 1}. ${esc(c.title || "(untitled)")}${short ? '<span class="badge">short</span>' : ""}${badge}${help}</div>
         <div class="m">${c.chars.toLocaleString()} characters · about ${fmtDuration(c.seconds)}</div></div>
       <button type="button" class="small" data-toggle aria-label="Show the start and end of this chapter">Peek</button>
       <div class="snip"><b>Starts:</b> ${esc(c.head) || "(empty)"}${c.tail ? `<br><b>Ends:</b> …${esc(c.tail)}` : ""}</div>
@@ -474,12 +533,42 @@ function renderChapters() {
 $("chapters").addEventListener("click", (e) => {
   const row = e.target.closest(".ch"); if (!row) return;
   const i = Number(row.dataset.i);
+  if (e.target.closest("[data-info]")) { showAudioInfo(i); return; }
+  if (e.target.closest("[data-copy]")) { copyAudioSettings(i); return; }
   if (e.target.closest("[data-toggle]")) { row.classList.toggle("open"); return; }
   if (e.target.matches("input[type=checkbox]")) {
     e.target.checked ? state.selected.add(i) : state.selected.delete(i);
     row.classList.toggle("off", !e.target.checked); updateConfirm();
   }
 });
+/* ℹ️ and ✍️: the audio a chapter already has in other voices, newest first */
+function otherAudio(i) {
+  const c = state.preview.chapters.find((x) => x.index === i);
+  return { c, list: audioStatus(c, voiceSpec()).others.slice().sort((a, b) => b.created - a.created) };
+}
+function showAudioInfo(i) {
+  const { c, list } = otherAudio(i);
+  $("infoHead").textContent = `${c.index + 1}. ${c.title || "(untitled)"}`;
+  $("infoBody").innerHTML = list.map((a) => `<div class="info-item"><dl class="facts">
+      <dt>Engine</dt><dd>${esc(catalogLabel(a.model))}</dd>
+      <dt>Narrator</dt><dd>${esc(a.voice || "Default")}</dd>
+      <dt>Dialogue</dt><dd>${esc(a.dialog_voice || "Same as narrator")}</dd>
+      <dt>Expressiveness</dt><dd>${a.model === "english" ? "not used by this engine" : a.temperature}</dd>
+      <dt>Titles read aloud</dt><dd>${a.read_titles ? "yes" : "no"}</dd>
+      <dt>Splitting</dt><dd>${esc(a.processor)}</dd>
+      <dt>Made</dt><dd>${esc(new Date(a.created * 1000).toLocaleString())}</dd>
+      <dt>Length</dt><dd>${fmtDuration(Math.round(a.seconds))} · ${fmtMB(a.bytes)}</dd>
+      <dt>File</dt><dd class="md5">${esc(a.file)}</dd></dl></div>`).join("");
+  $("dlgInfo").showModal();
+}
+function copyAudioSettings(i) {
+  const [latest] = otherAudio(i).list;
+  if (!latest) return;
+  applySettings(latest);
+  toast(`Settings copied from the audio made with ${catalogLabel(latest.model)}`);
+}
+$("infoClose").onclick = () => $("dlgInfo").close();
+
 function setSelection(fn) {
   if (!state.preview) return;
   state.selected = new Set(state.preview.chapters.filter(fn).map((c) => c.index)); renderChapters();
@@ -516,7 +605,7 @@ async function loadVoices() {
     $("voice").innerHTML = `<option value="">Default</option>${opts}`;
     $("dialog_voice").innerHTML = `<option value="">Same as narrator</option>${opts}`;
     $("voice").value = keep[0]; $("dialog_voice").value = keep[1];
-    renderGallery(); renderRunOn();
+    renderGallery(); refreshBadges();
   };
   try {
     const r = await fetch("/api/voices?model=" + $("model").value);
@@ -584,6 +673,66 @@ async function playSample(voice, button) {
   finally { button.disabled = false; button.textContent = label; }
 }
 
+/* ---------- presets: a saved engine, voices and settings ---------- */
+state.presets = [];
+const presetFields = () => ({ model: $("model").value, voice: $("voice").value || null, dialog_voice: $("dialog_voice").value || null,
+  temperature: Number($("temperature").value) || state.defaults.temperature, read_titles: $("read_titles").checked });
+/* put a set of settings on the form; a new engine means its voice list is fetched and the voices set when it arrives */
+function applySettings(s) {
+  const changed = $("model").value !== s.model;
+  $("model").value = s.model;
+  $("temperature").value = s.temperature ?? state.defaults.temperature;
+  $("read_titles").checked = !!s.read_titles;
+  syncModelFields();
+  if (changed) {
+    state.wantVoices = [s.voice || "", s.dialog_voice || ""];
+    $("voice").value = ""; $("dialog_voice").value = "";
+    loadVoices();
+  } else {
+    $("voice").value = s.voice || ""; $("dialog_voice").value = s.dialog_voice || "";
+  }
+  renderGallery(); refreshBadges();
+}
+function presetSay(text, isErr) { $("presetMsg").textContent = text; $("presetMsg").className = isErr ? "err" : "muted"; }
+function presetChanged() {
+  const selected = state.presets.find((p) => p.id === $("presetSel").value);
+  $("presetDel").disabled = !selected;
+  $("presetSave").textContent = selected && !$("presetName").value.trim() ? "Update preset" : "Save preset";
+}
+async function loadPresets(selectId = $("presetSel").value) {
+  try { state.presets = await (await fetch("/api/presets")).json(); } catch (e) { return; }
+  $("presetSel").innerHTML = `<option value="">Choose a saved preset…</option>` + state.presets.map((p) =>
+    `<option value="${esc(p.id)}">${esc(p.name)} · ${esc(catalogLabel(p.model))}${p.voice ? " · " + esc(p.voice) : ""}</option>`).join("");
+  $("presetSel").value = state.presets.some((p) => p.id === selectId) ? selectId : "";
+  presetChanged();
+}
+$("presetSel").addEventListener("change", () => {
+  const p = state.presets.find((x) => x.id === $("presetSel").value);
+  if (p) { applySettings(p); presetSay(`Using “${p.name}”.`); }
+  presetChanged();
+});
+$("presetName").addEventListener("input", presetChanged);
+$("presetSave").onclick = async () => {
+  const typed = $("presetName").value.trim();
+  const selected = state.presets.find((p) => p.id === $("presetSel").value);
+  if (!typed && !selected) { presetSay("Type a name for the preset first.", true); return; }
+  const r = await fetch("/api/presets", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: !typed ? selected.id : null, name: typed || selected.name, ...presetFields() }) });
+  if (!r.ok) { presetSay(await errText(r), true); return; }
+  const saved = await r.json();
+  $("presetName").value = "";
+  await loadPresets(saved.id);
+  presetSay(`Saved “${saved.name}”.`);
+};
+$("presetDel").onclick = async () => {
+  const p = state.presets.find((x) => x.id === $("presetSel").value);
+  if (!p || !confirm(`Delete the preset “${p.name}”?`)) return;
+  const r = await fetch(`/api/presets/${p.id}`, { method: "DELETE" });
+  if (!r.ok) { presetSay(await errText(r), true); return; }
+  await loadPresets("");
+  presetSay(`Deleted “${p.name}”.`);
+};
+
 /* ---------- confirm modal ---------- */
 function chapterList(items) {
   const shown = items.slice(0, 8).map((c) => `<li>${c.index + 1}. ${esc(c.title || "(untitled)")}</li>`).join("");
@@ -644,9 +793,10 @@ function resetFlow(deleteUpload) {
 }
 
 /* ---------- playlists (jobs and library) ---------- */
+/* a playlist root holds its <audio> and a list of rows; an item with no url (a chapter not made yet) cannot be played */
 function playTrack(root, n) {
   const items = root._items || [], audio = root.querySelector("audio");
-  if (!items[n]) return;
+  if (!items[n] || !items[n].url) return;
   root._now = n; audio.src = items[n].url; audio.play().catch(() => toast("That chapter is not ready yet"));
   root.querySelectorAll(".tr").forEach((tr) => tr.classList.toggle("now", Number(tr.dataset.track) === n));
 }
@@ -655,44 +805,107 @@ function trackRows(items, withDelete) {
 }
 function wirePlaylist(root) {
   const audio = root.querySelector("audio");
-  audio.addEventListener("ended", () => { if (root._now + 1 < (root._items || []).length) playTrack(root, root._now + 1); });
+  audio.addEventListener("ended", () => {
+    const next = (root._items || []).findIndex((it, i) => i > root._now && it.url);
+    if (next >= 0) playTrack(root, next);
+  });
   root.addEventListener("click", (e) => {
     const tr = e.target.closest(".tr"); if (tr && e.target.closest(".play")) playTrack(root, Number(tr.dataset.track));
   });
 }
 
 /* ---------- jobs ---------- */
+const JOB_ACTIVE = ["queued", "running", "assembling"];
+const CLEAR_GROUPS = { succeeded: ["done"], failed: ["error", "cancelled"], paused: ["paused"] };
 const jobEls = new Map();
-function jobShell(j) {
-  const el = document.createElement("div");
-  el.className = "job"; el.dataset.id = j.id;
-  el.innerHTML = '<div class="top"></div><div class="bar"><i></i></div><div class="status muted"></div><div class="wk"></div><div class="err"></div><div class="media"></div>';
-  return el;
-}
+const openJobs = new Set();   /* the rows the user opened, so a refresh keeps them open */
 function setHtml(node, html) { if (node.dataset.h !== html) { node.innerHTML = html; node.dataset.h = html; } }
 
-function patchJob(el, j) {
-  const total = j.chapters_total || 1;
-  const lanes = j.workers || [];
+/* one colour, icon and word per state; the row, its icon and its bar all take the colour */
+function jobTone(j) {
+  if (j.state === "done") return { cls: "done", icon: "✅", word: "Done" };
+  if (j.state === "error") return { cls: "failed", icon: "❌", word: "Failed" };
+  if (j.state === "cancelled") return { cls: "failed", icon: "❌", word: "Cancelled" };
+  if (j.state === "paused") return { cls: "paused", icon: "⏸️", word: "Paused" };
+  if (j.state === "queued" && (j.error || "").startsWith("waiting for a machine")) return { cls: "working", icon: "⏳", word: "Waiting for a machine" };
+  return { cls: "working", icon: "⏳", word: j.state === "queued" ? "Queued" : "Working" };
+}
+const engineVoice = (j) => `${catalogLabel(j.model)} · ${j.voice || "default voice"}${j.dialog_voice ? " / " + j.dialog_voice : ""}`;
+
+function jobShell() {
+  const el = document.createElement("div");
+  el.className = "job";
+  el.innerHTML = `<div class="head" role="button" tabindex="0" aria-expanded="false">
+      <div class="main"><div class="t"></div><div class="sub muted"></div><div class="bar"><i></i></div><div class="meta muted"></div></div>
+      <span class="ico" aria-hidden="true"></span></div>
+    <div class="details hidden"><div class="acts"></div><div class="err"></div><div class="wk"></div>
+      <div class="chs"></div><audio controls preload="none" class="hidden"></audio></div>`;
+  return el;
+}
+
+function patchJob(el, j, lanes = j.workers || []) {
+  el._job = j; el.dataset.id = j.id;
+  const tone = jobTone(j), total = j.chapters_total || j.selected || 0;  /* before the book is read, the chapters chosen */
   const inFlight = lanes.reduce((a, w) => a + (w.state === "rendering" && w.clip_count ? w.clip_index / w.clip_count : 0), 0);
-  const frac = j.state === "done" ? 1 : Math.min(1, (j.chapters_done + inFlight) / total);
-  const active = ["queued", "running", "assembling"].includes(j.state);
-  const acts = active ? `<button class="small" data-a="cancel" data-id="${j.id}">Cancel</button>`
-    : (j.state === "error" || j.state === "cancelled" ? `<button class="small" data-a="retry" data-id="${j.id}">Retry</button> ` : "") + `<button class="small" data-a="delete" data-id="${j.id}">Remove from list</button>`;
-  setHtml(el.querySelector(".top"), `<b>${esc(j.title)}</b><span>${acts}</span>`);
-  el.querySelector(".bar i").style.width = `${Math.round(frac * 100)}%`;
-  el.querySelector(".bar").classList.toggle("hidden", j.state === "done");
-  const detail = j.state === "done" ? "" : ` · ${j.chapters_done}/${j.chapters_total} chapters`;
-  el.querySelector(".status").textContent = `${j.state} · ${j.model}${j.voice ? " · " + j.voice : ""}${j.dialog_voice ? " / " + j.dialog_voice : ""}${detail}`;
-  setHtml(el.querySelector(".wk"), laneLines(j, lanes));
-  const err = el.querySelector(".err"); err.textContent = j.error || ""; err.classList.toggle("hidden", !j.error);
-  patchMedia(el.querySelector(".media"), j);
+  const pct = Math.round((j.state === "done" ? 1 : total ? Math.min(1, (j.chapters_done + inFlight) / total) : 0) * 100);
+  const open = openJobs.has(j.id);
+  el.className = `job ${tone.cls}`;
+  el.querySelector(".head").setAttribute("aria-expanded", String(open));
+  setHtml(el.querySelector(".t"), `<b>Job #${esc(j.id)}</b> · ${esc(j.title)}${total ? ` · ${total} chapter${total === 1 ? "" : "s"}` : ""}`);
+  el.querySelector(".sub").textContent = engineVoice(j);
+  el.querySelector(".bar i").style.width = `${pct}%`;
+  el.querySelector(".meta").textContent = `${pct}% · ${tone.word}${j.state === "done" || !total ? "" : ` · ${j.chapters_done}/${total} chapters`}`;
+  const ico = el.querySelector(".ico"); ico.textContent = tone.icon; ico.title = tone.word;
+  el.querySelector(".details").classList.toggle("hidden", !open);
+  if (open) patchDetails(el.querySelector(".details"), j, lanes);
+}
+
+function toggleJob(el) {
+  const id = el.dataset.id;
+  if (openJobs.has(id)) openJobs.delete(id); else openJobs.add(id);
+  patchJob(el, el._job);
+}
+
+function jobActions(j) {
+  const btn = (a, label, cls = "") => `<button type="button" class="small ${cls}" data-a="${a}" data-id="${j.id}">${label}</button>`;
+  if (JOB_ACTIVE.includes(j.state)) return btn("pause", "⏸ Pause") + btn("cancel", "Cancel", "danger");
+  if (j.state === "done") return `<a class="btn small" href="#library" data-open-book="${j.book_md5}">Open in Library</a>` + btn("delete", "Remove from list");
+  if (j.state === "paused") return btn("retry", "▶ Resume") + btn("delete", "Remove from list");
+  return btn("retry", "Retry") + btn("delete", "Remove from list");
+}
+
+/* the chapters of a job: an icon for each one's own state, and the ones made can be played */
+function chapterRows(j, lanes) {
+  return j.chapters.map((c, i) => {
+    const ready = c.seconds != null && !!c.file;
+    const worker = lanes.find((w) => w.state === "rendering" && w.chapter === c.title);
+    let icon = "○", text = "waiting";
+    if (ready) { icon = "✅"; text = fmtClock(c.seconds); }
+    else if (worker) { icon = "⏳"; text = `${worker.label} · clip ${Math.min(worker.clip_index + 1, worker.clip_count)}/${worker.clip_count}`; }
+    else if (j.state === "paused") { icon = "⏸️"; text = "paused"; }
+    else if (j.state === "error" || j.state === "cancelled") { icon = "❌"; text = "not finished"; }
+    return `<div class="tr" data-track="${i}"><button type="button" class="small play" ${ready ? "" : "disabled"}><span>${icon} ${esc(c.title)}</span><span class="muted">${esc(text)}</span></button></div>`;
+  }).join("") || '<div class="muted">Chapters appear once the book has been read.</div>';
+}
+
+function patchDetails(d, j, lanes) {
+  setHtml(d.querySelector(".acts"), jobActions(j));
+  const err = d.querySelector(".err"); err.textContent = j.error || ""; err.classList.toggle("hidden", !j.error);
+  setHtml(d.querySelector(".wk"), laneLines(j, lanes));
+  if (!d._wired) { wirePlaylist(d); d._wired = true; }
+  d._items = j.chapters.map((c) => {
+    const ready = c.seconds != null && !!c.file;
+    return { url: ready ? audioUrl(j.book_md5, c.file) : null, title: c.title, meta: ready ? fmtClock(c.seconds) : "" };
+  });
+  setHtml(d.querySelector(".chs"), chapterRows(j, lanes));
+  d.querySelector("audio").classList.toggle("hidden", !d._items.some((it) => it.url));
+  if (d._now != null) d.querySelectorAll(".tr").forEach((tr) => tr.classList.toggle("now", Number(tr.dataset.track) === d._now));
 }
 
 /* what each machine is doing: lines under a running job, a one-line summary once it is done */
 function laneLines(j, lanes) {
   if (!lanes.length) return "";
-  const active = ["queued", "running", "assembling"].includes(j.state);
+  const active = JOB_ACTIVE.includes(j.state);
   if (!active) {
     const used = lanes.filter((w) => w.done > 0);
     return j.state === "done" && lanes.length > 1 && used.length
@@ -708,46 +921,49 @@ function laneLines(j, lanes) {
   }).join("");
 }
 
-function patchMedia(media, j) {
-  if (!media.querySelector("audio")) {
-    media.innerHTML = '<audio controls preload="none" class="hidden"></audio><div class="chs"></div><div class="links"></div>';
-    wirePlaylist(media);
-  }
-  const ready = j.chapters.filter((c) => c.seconds != null && c.file);
-  const items = ready.map((c) => ({ url: audioUrl(j.book_md5, c.file), title: c.title, meta: fmtClock(c.seconds), file: c.file }));
-  media._items = items;
-  const rows = trackRows(items, false);
-  setHtml(media.querySelector(".chs"), rows);
-  media.querySelector("audio").classList.toggle("hidden", items.length === 0);
-  if (media._now != null) media.querySelectorAll(".tr").forEach((tr) => tr.classList.toggle("now", Number(tr.dataset.track) === media._now));
-  setHtml(media.querySelector(".links"), j.state === "done"
-    ? `<a href="#library" data-open-book="${j.book_md5}">Open in library</a> <span class="muted">· ${items.length} chapter${items.length === 1 ? "" : "s"} in <span class="md5">library/${esc(j.book_md5)}/</span></span>`
-    : items.length ? `<span class="muted">${items.length} chapter${items.length === 1 ? "" : "s"} ready to play while the rest is made</span>` : "");
-}
-
 function syncJobs(jobs) {
   const box = $("jobs"), seen = new Set();
   jobs.forEach((j, idx) => {
     seen.add(j.id);
     let el = jobEls.get(j.id);
-    if (!el) { el = jobShell(j); jobEls.set(j.id, el); }
+    if (!el) { el = jobShell(); jobEls.set(j.id, el); }
     if (box.children[idx] !== el) box.insertBefore(el, box.children[idx] || null);
     patchJob(el, j);
   });
-  for (const [id, el] of jobEls) if (!seen.has(id)) { el.remove(); jobEls.delete(id); }
+  for (const [id, el] of jobEls) if (!seen.has(id)) { el.remove(); jobEls.delete(id); openJobs.delete(id); }
   $("jobsEmpty").classList.toggle("hidden", jobs.length > 0);
-  const active = jobs.filter((j) => ["queued", "running", "assembling"].includes(j.state)).length;
+  const active = jobs.filter((j) => JOB_ACTIVE.includes(j.state)).length;
   $("jobBadge").textContent = active; $("jobBadge").classList.toggle("hidden", active === 0);
+  for (const [group, states] of Object.entries(CLEAR_GROUPS)) {
+    const n = jobs.filter((j) => states.includes(j.state)).length, b = document.querySelector(`[data-clear="${group}"]`);
+    b.querySelector(".n").textContent = n; b.disabled = n === 0;
+  }
 }
 async function refreshJobs() {
   try { syncJobs(await (await fetch("/api/jobs")).json()); } catch (e) {}
 }
 $("jobs").addEventListener("click", async (e) => {
   const open = e.target.closest("[data-open-book]"); if (open) { state.openBooks.add(open.dataset.openBook); return; }
-  const b = e.target.closest("button[data-a]"); if (!b) return;
-  const { a, id } = b.dataset;
-  await fetch(`/api/jobs/${id}` + (a === "delete" ? "" : "/" + a), { method: a === "delete" ? "DELETE" : "POST" });
-  refreshJobs();
+  const b = e.target.closest("button[data-a]");
+  if (b) {
+    const { a, id } = b.dataset;
+    const r = await fetch(`/api/jobs/${id}` + (a === "delete" ? "" : "/" + a), { method: a === "delete" ? "DELETE" : "POST" });
+    if (!r.ok) toast(await errText(r));
+    refreshJobs(); return;
+  }
+  const head = e.target.closest(".head"); if (head) toggleJob(head.closest(".job"));
+});
+$("jobs").addEventListener("keydown", (e) => {
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches(".head")) { e.preventDefault(); toggleJob(e.target.closest(".job")); }
+});
+$("view-jobs").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-clear]"); if (!b) return;
+  $("clearMenu").open = false;
+  const r = await fetch("/api/jobs/clear", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ states: CLEAR_GROUPS[b.dataset.clear] }) });
+  if (!r.ok) { toast(await errText(r)); return; }
+  const { removed } = await r.json();
+  toast(`Cleared ${removed} job${removed === 1 ? "" : "s"}`); refreshJobs();
 });
 
 /* ---------- library ---------- */
@@ -857,14 +1073,14 @@ let draft = null;    // what is on screen in Settings
 state.machines = []; state.live = {}; state.catalog = [];
 const machineById = (id) => state.machines.find((m) => m.id === id);
 const modelWord = (m) => (m.ready ? "ready" : m.loading ? "loading" : "not loaded");
-const blankWorker = () => ({ id: null, name: "", url: "", token: "", clear_token: false, enabled: true, has_token: false, test: null });
+const blankWorker = () => ({ id: null, name: "", url: "", token: "", clear_token: false, enabled: true, has_token: false, test: null, batch: 1 });
 
 async function loadEngine() {
   const r = await fetch("/api/engine");
   if (!r.ok) return;
   engine = await r.json();
   if (!draft || !state.engineDirty) {
-    draft = { local_enabled: engine.local.enabled, workers: engine.workers.map((w) => ({ ...w, token: "", clear_token: false, test: null })) };
+    draft = { local_enabled: engine.local.enabled, local_batch: engine.local.batch, workers: engine.workers.map((w) => ({ ...w, token: "", clear_token: false, test: null })) };
     renderMachines();
   }
   await loadMachines();
@@ -873,12 +1089,14 @@ function renderMachines() {
   const local = engine.local;
   $("machines").innerHTML = `<div class="mrow"><label class="opt" style="margin:0"><input type="checkbox" data-f="local_enabled" ${draft.local_enabled ? "checked" : ""} ${local.available ? "" : "disabled"}>
       <span><b>This server</b> <span class="muted">runs the models itself.</span> ${local.available ? "" : '<span class="err">Not available: the voice models are not installed on this server.</span>'}</span></label>
+      <div class="batch"><div><label>Texts per request</label><input type="number" min="1" max="32" step="1" data-f="local_batch" value="${esc(draft.local_batch)}"></div></div>
       <div class="mstat" data-key="local"></div><div class="mmodels" data-key="local"></div></div>` +
     draft.workers.map((w, i) => `<div class="mrow" data-i="${i}">
       <div class="row"><div class="use"><label><input type="checkbox" data-f="enabled" ${w.enabled ? "checked" : ""}> Use</label></div>
         <div><label>Name</label><input type="text" data-f="name" value="${esc(w.name)}" placeholder="Laptop"></div>
         <div><label>Address</label><input type="text" data-f="url" value="${esc(w.url)}" placeholder="http://192.168.1.20:8780" autocomplete="off"></div>
-        <div><label>Token</label><input type="password" data-f="token" value="${esc(w.token)}" autocomplete="off" placeholder="${w.has_token ? "saved; blank keeps it" : "none"}"></div></div>
+        <div><label>Token</label><input type="password" data-f="token" value="${esc(w.token)}" autocomplete="off" placeholder="${w.has_token ? "saved; blank keeps it" : "none"}"></div>
+        <div class="batch-n"><label>Texts per request</label><input type="number" min="1" max="32" step="1" data-f="batch" value="${esc(w.batch)}"></div></div>
       <div class="actions-row"><button type="button" class="small" data-act="test">Test</button>
         <button type="button" class="small danger" data-act="remove">Remove</button>
         ${w.has_token ? `<label class="muted" style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" data-f="clear_token" ${w.clear_token ? "checked" : ""}> forget the saved token</label>` : ""}</div>
@@ -900,7 +1118,8 @@ function describeLive(m) {
     Object.entries(m.models || {}).map(([k, v]) => `${k} ${modelWord(v)}`).join(", ");
   const caps = m.capabilities || {};
   const dev = m.device ? deviceText(m.device) : null;
-  const notes = [caps.synthesize === false ? "takes phonemes only (this server does the text work)" : "", caps.clone === false ? "cannot clone voices" : ""].filter(Boolean).join("; ");
+  const notes = [caps.synthesize === false ? "takes phonemes only (this server does the text work)" : "", caps.clone === false ? "cannot clone voices" : "",
+    m.kind !== "local" && caps.synthesize !== false && !caps.batch ? "takes one text per request (an older worker)" : ""].filter(Boolean).join("; ");
   return { text: `Online${m.latency_ms != null ? ` · ${m.latency_ms} ms` : ""}${dev ? ` · ${dev.text}` : ""}${models ? ` · ${models}` : ""}${notes ? ` · ${notes}` : ""}`,
            cls: dev && dev.bad ? "bad" : "good" };
 }
@@ -965,7 +1184,8 @@ $("machines").addEventListener("click", async (e) => {
 $("addWorker").addEventListener("click", () => { draft.workers.push(blankWorker()); state.engineDirty = true; renderMachines(); });
 $("engSave").addEventListener("click", async () => {
   const say = (t, cls) => { $("engMsg").textContent = t; $("engMsg").className = cls; };
-  const body = { local_enabled: draft.local_enabled, workers: draft.workers.map((w) => ({ id: w.id, name: w.name, url: w.url, token: w.token || null, clear_token: !!w.clear_token, enabled: w.enabled })) };
+  const body = { local_enabled: draft.local_enabled, local_batch: Number(draft.local_batch),
+    workers: draft.workers.map((w) => ({ id: w.id, name: w.name, url: w.url, token: w.token || null, clear_token: !!w.clear_token, enabled: w.enabled, batch: Number(w.batch) })) };
   const r = await fetch("/api/engine", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   if (!r.ok) { say(await errText(r), "err"); return; }
   state.engineDirty = false; draft = null;
@@ -1167,10 +1387,10 @@ let lastDone = new Set();
   $("model").value = state.defaults.model; $("temperature").value = state.defaults.temperature; syncModelFields();
   $("read_titles").checked = state.defaults.read_titles;
   $("file").accept = state.defaults.formats.join(",");
-  route(); loadEngine(); refreshJobs();
+  route(); loadEngine(); refreshJobs(); loadPresets();
   setInterval(async () => {
     await refreshJobs();
-    const done = new Set([...jobEls.keys()].filter((id) => jobEls.get(id).querySelector(".status").textContent.startsWith("done")));
+    const done = new Set([...jobEls].filter(([, el]) => el._job && el._job.state === "done").map(([id]) => id));
     if ([...done].some((id) => !lastDone.has(id)) && currentTab() === "library") refreshLibrary();
     lastDone = done;
   }, 3000);

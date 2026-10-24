@@ -80,6 +80,10 @@ class Settings:
         return self.data_dir / "config" / "calibre.json"
 
     @property
+    def presets_config(self) -> Path:
+        return self.data_dir / "config" / "presets.json"
+
+    @property
     def voice_cache(self) -> Path:
         return self.data_dir / "cache" / "voices.json"
 

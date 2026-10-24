@@ -34,6 +34,10 @@ then shows:
 
 ### 3. Choose a voice
 
+- **Presets.** A saved set of engine (model), narrator, dialogue voice and expressiveness. Pick one to apply it. To keep
+  the settings on the form as a preset, type a name and press **Save preset**; with a preset picked and no name typed,
+  the button updates that preset. **Delete** removes the picked one. Presets are kept on the server, so every browser
+  sees them.
 - **Model.** English (Supertonic), Vietnamese Nano or Vietnamese Turbo. When you upload an English book the page
   switches to English and its voices and says so; a Vietnamese book switches back to your Vietnamese default.
 - **Expressiveness.** How varied the Vietnamese voices are (higher is more expressive and less steady). Hidden for the
@@ -59,7 +63,10 @@ length, splitting method, voice, machines, and where the files will be saved. It
 
 - *N selected chapters already have audio in this voice.* Converting again replaces them. You can **Skip the N with
   audio**, or **Convert all (replace)**.
-- *N have audio in another voice.* The new audio is added next to it; nothing is replaced.
+- *N have audio in another voice.* The new audio is added next to it; nothing is replaced. Such a chapter shows two
+  small buttons: **ℹ️** opens what that audio was made with (engine, narrator, dialogue voice, expressiveness, whether
+  titles were read, when it was made, its length and file), and **✍️** sets the engine, voices and expressiveness on
+  the form to match the newest of that audio, so the chapter converts in the same voice.
 
 **Start over** discards the uploaded file and returns to step 1.
 
@@ -83,25 +90,35 @@ audio files, total length, the voice settings used (as chips), the book's MD5 an
 
 ## Jobs
 
-One entry per conversion, newest first. An entry shows:
+One row per conversion, newest first. A row is a single line: `Job #id · book · chapters`, the engine and voice
+it uses, a progress bar with the percentage, and on the right an icon for its state:
 
-- a progress bar (finished chapters plus the partial progress of the chapters being made right now);
-- the state: `queued`, `running`, `assembling`, `done`, `error` or `cancelled`;
+- ✅ **Done** (green)
+- ⏳ **Working** (blue): queued, waiting for a machine, or running
+- ❌ **Failed or cancelled** (red)
+- ⏸️ **Paused** (amber)
+
+Press a row to open it. Inside you find:
+
+- **Pause** (a queued job waits; a running one stops after the sentence in progress and keeps its finished chapters),
+  **Resume** (for a paused job), **Cancel**, **Retry** (for a failed or cancelled job; finished chapters are reused)
+  and **Remove from list**;
+- **Open in Library** once the job is done;
 - one line per machine while it runs: what it is doing ("loading the model", "downloading … (182 of about 280 MB)",
-  "sending the cloned voice", or the chapter and sentence it is on and how many it has finished), or why it dropped
-  out;
-- the chapters finished so far, playable at once;
-- **Cancel** (stops after the current sentence; finished chapters stay), **Retry** (continues from the next
-  unfinished chapter) and **Remove from list**.
+  "sending the cloned voice", or the chapter and clip it is on), or why it dropped out;
+- every chapter with its own icon: ✅ made (playable at once), ⏳ being made, ○ waiting, ⏸️ paused, ❌ not finished;
+- the reason when the job failed.
 
-A job that stops because a machine failed says which machine and why. The red badge on the Jobs tab counts active
-jobs.
+**Clear** at the top removes from the list the succeeded, the failed or the paused jobs. It never removes audio, and it
+never touches a job that is still running or queued. The red badge on the Jobs tab counts active jobs.
 
 ## Settings
 
 - **Voice machines.** This server and any number of voice workers: add, test, switch on or off, remove, and see what
   models each one has, listed in two columns (one card per model: its state, and a button to download or load it
-  ahead of time). See [Voice workers](workers.md).
+  ahead of time). Each machine also has **Texts per request** (1 to 32, default 1): how many sentences it is sent in one
+  request. A GPU works on them together; a CPU runs them one after another, so there a larger number only saves round
+  trips. See [Voice workers](workers.md).
 - **Calibre-Web.** Address, username and password of your Calibre-Web server, with Test, Save and Disconnect.
 - **How to start a worker.** The commands for a worker machine.
 

@@ -13,19 +13,25 @@ FILLER = " ".join(["Đây là một câu dài để chương đủ số ký tự
 class FakeEngine:
     sample_rate = 24000
 
-    def __init__(self, fail_on: str | None = None):
+    def __init__(self, fail_on: str | None = None, batch: int = 1):
         self.calls: list[str] = []
         self.dialog_calls: list[str] = []
+        self.requests: list[list[str]] = []  # one entry per call to the machine, with the texts it was given
         self.fail_on = fail_on
+        self.batch = batch
 
     def synthesize(self, text: str, dialog: bool = False) -> np.ndarray:
-        if self.fail_on and self.fail_on in text:
+        return self.synthesize_many([text], dialog)[0]
+
+    def synthesize_many(self, texts: list[str], dialog: bool = False) -> list[np.ndarray]:
+        if self.fail_on and any(self.fail_on in text for text in texts):
             raise RuntimeError("boom")
-        self.calls.append(text)
+        self.requests.append(list(texts))
+        self.calls.extend(texts)
         if dialog:
-            self.dialog_calls.append(text)
-        n = int(self.sample_rate * 0.01 * len(text))
-        return (0.2 * np.sin(np.linspace(0, 440 * np.pi, n))).astype(np.float32)
+            self.dialog_calls.extend(texts)
+        return [(0.2 * np.sin(np.linspace(0, 440 * np.pi, n))).astype(np.float32)
+                for n in (int(self.sample_rate * 0.01 * len(text)) for text in texts)]
 
 
 @pytest.fixture
@@ -109,6 +115,10 @@ class FakeHandle:
         n = int(rate * 0.01 * len(text))
         return (0.4 * np.sin(np.linspace(0, 300 * np.pi, n))).astype(np.float32)
 
+    def infer_batch(self, texts, voice=None, temperature=0.8, **_):
+        self.backend.batch_calls.append((self.model, list(texts), voice, temperature))
+        return [self.infer(text, voice=voice, temperature=temperature) for text in texts]
+
     def infer_phonemes(self, phonemes, voice=None, steps=None, cfg=None, speed=1.0, seed=None):
         import numpy as np
 
@@ -131,6 +141,7 @@ class FakeHandle:
 class FakeBackend:
     def __init__(self):
         self.calls, self.cloned, self.loads, self.phoneme_calls = [], [], [], []
+        self.batch_calls = []  # one entry per batch request, with every text in it
 
     def load(self, model):
         self.loads.append(model)

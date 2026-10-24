@@ -59,6 +59,9 @@ answers OPDS requests.
 | `test_queue.py` | Several books at once: a machine moving on to the next book, order, cancelling while waiting |
 | `test_pool.py`, `test_prepare.py`, `test_models.py` | Model pool, making a machine ready, what a machine has of each model, worker-owned models |
 | `test_worker.py`, `test_phonemes.py`, `test_golden.py` | The worker protocol, phoneme-only workers, golden reference data |
+| `test_batch.py` | Several texts per request: the worker endpoint, the remote handle, the per-machine setting, older workers |
+| `test_pause_and_clear.py` | Pausing and resuming a job, clearing finished and stopped jobs, grouping clips into batches while rendering |
+| `test_presets.py` | Voice presets: saving by id or name, deleting, the presets API |
 | `test_engine.py`, `test_balance.py`, `test_balance_api.py` | The machine list, chapters shared across machines |
 | `test_english.py`, `test_english_real.py` | The English model, language choice, abbreviations |
 | `test_startup.py` | The server and workers start with no model loaded |

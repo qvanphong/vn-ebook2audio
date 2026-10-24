@@ -17,7 +17,7 @@ import numpy as np
 from . import ingest, m4b
 from .config import Settings
 from .library import AudioEntry, Library, md5_file
-from .model import ACTIVE, Book, Chapter, Plan, State, Voice
+from .model import ACTIVE, Book, Chapter, Clip, Plan, State, Voice
 from .scheduler import Gates
 from .text import TextOptions, load_pronunciations
 from .tts import Engine, EngineFactory, LaneError, Unreachable
@@ -29,10 +29,11 @@ CREATE TABLE IF NOT EXISTS jobs (
   id TEXT PRIMARY KEY, source TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', state TEXT NOT NULL,
   model TEXT NOT NULL, voice TEXT, dialog_voice TEXT, temperature REAL NOT NULL, read_titles INTEGER NOT NULL,
   chapters_done INTEGER NOT NULL DEFAULT 0, chapters_total INTEGER NOT NULL DEFAULT 0,
-  output TEXT, error TEXT, cancel INTEGER NOT NULL DEFAULT 0, plan TEXT, chapters TEXT, workers TEXT, book_md5 TEXT,
-  created REAL NOT NULL, updated REAL NOT NULL
+  output TEXT, error TEXT, cancel INTEGER NOT NULL DEFAULT 0, pause INTEGER NOT NULL DEFAULT 0, plan TEXT, chapters TEXT,
+  workers TEXT, book_md5 TEXT, created REAL NOT NULL, updated REAL NOT NULL
 )
 """
+CLEARABLE = (State.DONE, State.ERROR, State.CANCELLED, State.PAUSED)  # finished or stopped: safe to remove from the list
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,7 @@ class Job:
     output: str | None
     error: str | None
     cancel: bool
+    pause: bool
     plan_json: str | None
     chapters_json: str | None
     workers_json: str | None
@@ -67,7 +69,7 @@ class Job:
         return Plan.from_json(self.plan_json)
 
     def public(self) -> dict:
-        hidden = ("cancel", "plan_json", "chapters_json", "workers_json")
+        hidden = ("cancel", "pause", "plan_json", "chapters_json", "workers_json")
         d = {k: (v.value if isinstance(v, State) else v) for k, v in self.__dict__.items() if k not in hidden}
         d["chapters"] = json.loads(self.chapters_json) if self.chapters_json else []
         d["workers"] = json.loads(self.workers_json) if self.workers_json else []
@@ -88,6 +90,8 @@ class JobStore:
             for column in ("dialog_voice", "plan", "chapters", "workers", "book_md5"):
                 if column not in columns:
                     self._db.execute(f"ALTER TABLE jobs ADD COLUMN {column} TEXT")
+            if "pause" not in columns:
+                self._db.execute("ALTER TABLE jobs ADD COLUMN pause INTEGER NOT NULL DEFAULT 0")
             self._db.commit()
 
     def _row(self, r: sqlite3.Row) -> Job:
@@ -95,6 +99,7 @@ class JobStore:
         d["state"] = State(d["state"])
         d["read_titles"] = bool(d["read_titles"])
         d["cancel"] = bool(d["cancel"])
+        d["pause"] = bool(d["pause"])
         d["plan_json"] = d.pop("plan")
         d["chapters_json"] = d.pop("chapters")
         d["workers_json"] = d.pop("workers")
@@ -166,17 +171,41 @@ class JobStore:
             self.update(job_id, cancel=1)
         return self.get(job_id)
 
-    def retry(self, job_id: str) -> Job | None:
+    def request_pause(self, job_id: str) -> Job | None:
+        """Stop a job but keep its finished chapters. A queued job waits as paused; a running one stops after the
+        sentence in progress, the same way a cancel does, and the runner records it as paused."""
         job = self.get(job_id)
-        if job is None or job.state not in (State.ERROR, State.CANCELLED):
+        if job is None or job.state not in ACTIVE:
             return job
-        self.update(job_id, state=State.QUEUED, cancel=0, error=None)
+        if job.state is State.QUEUED:
+            self.update(job_id, state=State.PAUSED)
+        else:
+            self.update(job_id, pause=1, cancel=1)
+        return self.get(job_id)
+
+    def retry(self, job_id: str) -> Job | None:
+        """Queue a stopped job again. Its finished chapters are reused, so this is also how a paused job resumes."""
+        job = self.get(job_id)
+        if job is None or job.state not in (State.ERROR, State.CANCELLED, State.PAUSED):
+            return job
+        self.update(job_id, state=State.QUEUED, cancel=0, pause=0, error=None)
         return self.get(job_id)
 
     def delete(self, job_id: str) -> None:
         with self._lock:
             self._db.execute("DELETE FROM jobs WHERE id=?", (job_id,))
             self._db.commit()
+
+    def clear(self, states: Sequence[State]) -> int:
+        """Remove every job in one of these states from the list (audio is kept). Returns how many were removed."""
+        wanted = [State(s).value for s in states if State(s) in CLEARABLE]
+        if not wanted:
+            return 0
+        marks = ",".join("?" * len(wanted))
+        with self._lock:
+            cur = self._db.execute(f"DELETE FROM jobs WHERE state IN ({marks})", wanted)
+            self._db.commit()
+            return cur.rowcount
 
 
 class Cancelled(Exception):
@@ -225,16 +254,36 @@ class FactoryLane:
         return [self]
 
 
+def clip_batches(clips: Sequence[Clip], size: int) -> list[list[tuple[int, Clip]]]:
+    """Consecutive clips in groups of at most `size` that share a voice (narrator or dialogue), in order, each with its
+    index in the chapter. A group is one request to the machine."""
+    groups: list[list[tuple[int, Clip]]] = []
+    for i, clip in enumerate(clips):
+        last = groups[-1] if groups else None
+        if last is not None and len(last) < size and last[0][1].dialog == clip.dialog:
+            last.append((i, clip))
+        else:
+            groups.append([(i, clip)])
+    return groups
+
+
 def render_chapter(chapter: Chapter, engine: Engine, sample_rate: int, check, on_clip) -> list[np.ndarray]:
     """The chapter's audio as the clips and pauses in order. They are not joined into one array: an hour of Turbo audio
-    is about 700 MB, and joining and converting it needed three times that at once."""
+    is about 700 MB, and joining and converting it needed three times that at once. With `engine.batch` above one,
+    neighbouring clips in the same voice go to the machine together."""
     parts: list[np.ndarray] = []
     total = len(chapter.clips)
-    for i, clip in enumerate(chapter.clips):
+    for group in clip_batches(chapter.clips, engine.batch):
         check()
-        on_clip(i, total)
-        parts.append(engine.synthesize(clip.text, clip.dialog))
-        parts.append(np.zeros(int(sample_rate * clip.pause_ms / 1000), dtype=np.float32))
+        on_clip(group[0][0], total)
+        clips = [clip for _i, clip in group]
+        if len(clips) == 1:
+            audios = [engine.synthesize(clips[0].text, clips[0].dialog)]
+        else:
+            audios = engine.synthesize_many([clip.text for clip in clips], clips[0].dialog)
+        for clip, audio in zip(clips, audios):
+            parts.append(audio)
+            parts.append(np.zeros(int(sample_rate * clip.pause_ms / 1000), dtype=np.float32))
     return parts
 
 
@@ -584,13 +633,14 @@ class Runner(threading.Thread):
             self.store.update(job.id, error=None)
             out = process(job, self.settings, self.store, self.source, self.library, self.gates, started,
                           self.retry_seconds)
-            self.store.update(job.id, state=State.DONE, output=str(out), error=None)
+            self.store.update(job.id, state=State.DONE, output=str(out), error=None, cancel=0, pause=0)
             log.info("job %s done: %s", job.id, out)
         except MachinesLost as exc:
             log.warning("job %s goes back in the queue: %s", job.id, exc)
             self.store.update(job.id, state=State.QUEUED, error=WAITING_NOTE + str(exc))
         except Cancelled:
-            self.store.update(job.id, state=State.CANCELLED, cancel=0)
+            paused = (self.store.get(job.id) or job).pause
+            self.store.update(job.id, state=State.PAUSED if paused else State.CANCELLED, cancel=0, pause=0)
         except (ingest.IngestError, ingest.UnsupportedFormat, ingest.ParamError) as exc:
             log.warning("job %s rejected: %s", job.id, exc)
             self.store.update(job.id, state=State.ERROR, error=f"{type(exc).__name__}: {exc}")
