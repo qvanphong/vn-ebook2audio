@@ -17,9 +17,9 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /srv
-COPY requirements.txt requirements-engine.txt ./
+COPY requirements.txt requirements-worker-common.txt requirements-mac-cpu.txt ./
 RUN pip install --no-cache-dir -r requirements.txt \
- && if [ "$WITH_ENGINE" = "1" ]; then pip install --no-cache-dir -r requirements-engine.txt; fi
+ && if [ "$WITH_ENGINE" = "1" ]; then pip install --no-cache-dir -r requirements-mac-cpu.txt; fi
 COPY app app
 
 # Models download into /data/cache/hf (the English model into /data/cache/hf/supertonic3) the first time they are

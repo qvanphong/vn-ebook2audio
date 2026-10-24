@@ -116,7 +116,7 @@ On the helping machine (Python 3.12 and ffmpeg installed), in this project:
 ```bash
 cd nas-audiobook
 python3.12 -m venv .venv && . .venv/bin/activate     # optional, but keeps it tidy
-python -m pip install -r requirements-worker.txt     # everything a worker needs, in one file
+python -m pip install -r requirements-mac-cpu.txt    # Apple silicon or any CPU; an NVIDIA GPU: see Using a GPU
 WORKER_NAME="Laptop" WORKER_TOKEN=choose-a-secret python -m app.worker
 ```
 
@@ -125,7 +125,7 @@ On Windows (PowerShell), the same steps are:
 ```powershell
 cd nas-audiobook
 py -3.12 -m venv .venv; .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements-worker.txt
+python -m pip install -r requirements-mac-cpu.txt
 $env:WORKER_NAME = "Windows PC"; $env:WORKER_TOKEN = "choose-a-secret"
 python -m app.worker
 ```
@@ -192,7 +192,7 @@ named device that is not available stops the start with the reason; the models t
 |---|---|---|
 | `auto` (default) | A GPU if one is available (CUDA, then DirectML), otherwise the CPU | whichever you installed |
 | `cpu` | The CPU for every model | `onnxruntime` |
-| `cuda` | An NVIDIA GPU | for English `onnxruntime-gpu`, plus CUDA 12 and cuDNN 9 on the machine; for Turbo the CUDA build of PyTorch (`requirements-engine-torch-cuda.txt`) |
+| `cuda` | An NVIDIA GPU | `requirements-nvidia-gpu.txt`: `onnxruntime-gpu` for English, and the CUDA build of PyTorch for Turbo |
 | `directml` | Any GPU on Windows (NVIDIA, AMD, Intel) | `onnxruntime-directml` |
 | `coreml` | Apple silicon | the ordinary macOS `onnxruntime` |
 | `openvino` | Intel | `onnxruntime-openvino` |
@@ -201,30 +201,28 @@ named device that is not available stops the start with the reason; the models t
 TTS_DEVICE=cuda python -m app.worker           # or: python -m app.worker --device cuda
 ```
 
-**NVIDIA GPU on Windows or Linux, running directly (not in Docker):** the worker needs the GPU build of ONNX Runtime and
-the CUDA and cuDNN libraries.
+**NVIDIA GPU on Windows or Linux, running directly (not in Docker):** `requirements-nvidia-gpu.txt` has what both models
+need on the GPU: the GPU build of ONNX Runtime with CUDA and cuDNN as pip packages (for English), and the CUDA build of
+PyTorch (for Turbo). It also lists VieNeu's CPU ONNX Runtime, which shares its files with the GPU build, so the next two
+lines swap it:
 
 ```bash
-python -m pip install -r requirements-worker.txt
+python -m pip install -r requirements-nvidia-gpu.txt
 python -m pip uninstall -y onnxruntime
-python -m pip install --force-reinstall "onnxruntime-gpu[cuda,cudnn]==1.22.0"     # for the English model on CUDA
-python -m pip install -r requirements-engine-torch-cuda.txt                      # for Turbo on CUDA
+python -m pip install --force-reinstall --no-deps "onnxruntime-gpu[cuda,cudnn]==1.22.0"
 ```
+
+A Mac runs the CPU file instead (`requirements-mac-cpu.txt`), which has no PyTorch.
 
 **Turbo uses PyTorch on the GPU, not ONNX Runtime.** VieNeu has two Turbo engines: an ONNX one that only runs on the
 CPU, and a PyTorch one with CUDA graphs and batching that is meant for NVIDIA GPUs (its authors measure Turbo at about
 0.1 seconds of work per second of audio on an RTX 3060, against 0.55 to 0.62 on a laptop CPU). The worker picks between
 them by itself: if PyTorch can use CUDA on the machine, Turbo runs on the GPU through PyTorch; otherwise on the CPU
 through ONNX, whatever ONNX Runtime package is installed. ONNX Runtime with CUDA (`onnxruntime-gpu`, cuDNN) is now only
-for the English model; Nano never uses a GPU. So for Turbo on an NVIDIA GPU:
-
-```bash
-python -m pip install -r requirements-engine-torch-cuda.txt
-```
-
-That installs the CUDA build of PyTorch (about 2.5 GB, with its own CUDA and cuDNN) and the `transformers` version
-VieNeu pins; do not install `vieneu[cuda]`, which pulls in more than the worker needs. PyTorch's Turbo files
-(about 340 MB) are downloaded by the first Turbo request, in addition to the ONNX ones if the CPU engine is ever used.
+for the English model; Nano never uses a GPU. `requirements-nvidia-gpu.txt` installs the CUDA build of PyTorch (about
+2.5 GB, with its own CUDA and cuDNN) and the `transformers` version VieNeu pins; do not install `vieneu[cuda]`, which
+pulls in more than the worker needs. PyTorch's Turbo files (about 340 MB) are downloaded by the first Turbo request, in
+addition to the ONNX ones if the CPU engine is ever used.
 At start the worker tries PyTorch on the GPU in a child process; with `auto` a failure is a log line and Turbo runs on
 the CPU, with `--device cuda` it is a warning (the worker still starts, because English may have ONNX CUDA). If Turbo
 fails its first run on the GPU it is loaded again on the CPU, and Settings shows `CUDA` or `CPU` next to it with the

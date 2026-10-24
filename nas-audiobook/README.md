@@ -207,7 +207,7 @@ Speech is the heavy part. By default this server runs the models itself. In **Se
 Start a worker on the machine that will do the work (Python 3.12 and ffmpeg installed):
 
 ```bash
-pip install -r requirements-worker.txt        # everything a worker needs, in one file
+pip install -r requirements-mac-cpu.txt      # Apple silicon or any CPU (NVIDIA GPU: requirements-nvidia-gpu.txt)
 WORKER_NAME="Laptop" WORKER_TOKEN=choose-a-secret python -m app.worker
 ```
 
@@ -334,7 +334,7 @@ Covers: the library now takes the cover an EPUB declares (EPUB 3 `cover-image`, 
 
 The Calibre tab was also run against a real Calibre-Web instance on a local network (through the app's own saved connection, read-only): the catalogue parsed (26 books on the first page, titles, formats, cover and download links), 8 books were downloaded and their covers compared with the ones Calibre-Web serves (which showed that Calibre's covers can differ from the ones inside the EPUBs and led to the cover import described above), and 3 books were imported with Calibre-Web's cover on a scratch copy of the data. Not tried against a real instance: search, paging beyond the first page, and the Preview button opening the page (the embedded browser blocks pop-ups).
 
-The English model's own test, which loads the real model, is off by default: `RUN_ENGINE_TESTS=1 pytest tests/test_english_real.py`. I did not time English on an N100 and did not test it in Docker; the Docker image installs it from `requirements-engine.txt`, untested like the rest of the image.
+The English model's own test, which loads the real model, is off by default: `RUN_ENGINE_TESTS=1 pytest tests/test_english_real.py`. I did not time English on an N100 and did not test it in Docker; the Docker image installs it from `requirements-mac-cpu.txt`, untested like the rest of the image.
 
 Not tested for the worker feature: a worker running as an Android app, Docker (you asked me to skip it; see the note below), a phone, a worker on another machine over Wi-Fi, HTTPS, and a worker with Turbo.
 

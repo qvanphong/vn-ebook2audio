@@ -1,0 +1,10 @@
+# What every voice worker needs, whatever its machine: the speech packages and the web server that answers the server.
+# It has no ONNX Runtime, because each machine file adds the build for its hardware. Install a worker from
+# requirements-mac-cpu.txt or requirements-nvidia-gpu.txt, which include this file.
+vieneu==3.8.3
+supertonic==1.3.1
+soundfile==0.14.0
+numpy==2.5.4
+fastapi==0.159.1
+uvicorn==0.54.0
+python-multipart==0.0.32

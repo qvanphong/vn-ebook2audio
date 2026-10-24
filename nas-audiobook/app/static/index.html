@@ -296,7 +296,7 @@
       <details>
         <summary>How to start a worker</summary>
         <div class="muted" style="margin-top:8px">On each machine that will help (Python 3.12 and ffmpeg installed), in this project's folder:</div>
-        <pre class="cmd">pip install -r requirements-worker.txt
+        <pre class="cmd">pip install -r requirements-mac-cpu.txt     # an NVIDIA GPU: requirements-nvidia-gpu.txt
 WORKER_NAME="Laptop" WORKER_TOKEN=choose-a-secret python -m app.worker</pre>
         <div class="muted">It listens on port 8780. Add it above with its address and token, press Test, then Save. Add as many as you like. A phone works only if the models can run there; anything that speaks the worker protocol described in the README can be used. A machine that has not downloaded or loaded the chosen model yet does that when a conversion starts, and the Jobs tab shows it doing so.</div>
       </details>

@@ -84,7 +84,7 @@ Without Docker:
 ```bash
 cd nas-audiobook
 python3.12 -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt -r requirements-engine.txt
+pip install -r requirements.txt -r requirements-mac-cpu.txt   # an NVIDIA GPU: requirements-nvidia-gpu.txt
 DATA_DIR=./data python -m app
 ```
 

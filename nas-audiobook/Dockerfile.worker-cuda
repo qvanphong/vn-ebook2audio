@@ -19,11 +19,11 @@ RUN python3 -m venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
 
 WORKDIR /srv
-COPY requirements.txt requirements-engine-gpu.txt ./
-# vieneu depends on the CPU onnxruntime; the GPU build replaces it (both ship the same module, so only one may stay).
-RUN pip install --no-cache-dir -r requirements.txt -r requirements-engine-gpu.txt \
+COPY requirements-worker-common.txt requirements-nvidia-gpu.txt ./
+# vieneu brings the CPU onnxruntime, which shares its files with the GPU build, so it is removed and the GPU build put back.
+RUN pip install --no-cache-dir -r requirements-nvidia-gpu.txt \
  && pip uninstall -y onnxruntime \
- && pip install --no-cache-dir --force-reinstall --no-deps onnxruntime-gpu==1.22.0
+ && pip install --no-cache-dir --force-reinstall --no-deps "onnxruntime-gpu[cuda,cudnn]==1.22.0"
 COPY app app
 
 ENV DATA_DIR=/data \

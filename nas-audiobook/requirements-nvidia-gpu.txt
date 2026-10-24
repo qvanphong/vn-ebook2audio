@@ -1,0 +1,13 @@
+# A voice worker on an NVIDIA GPU, on Windows or Linux (or Dockerfile.worker-cuda). Install in a Python 3.12 venv:
+#   python -m pip install -r requirements-nvidia-gpu.txt
+#   python -m pip uninstall -y onnxruntime
+#   python -m pip install --force-reinstall --no-deps "onnxruntime-gpu[cuda,cudnn]==1.22.0"
+# The CPU onnxruntime is listed only because vieneu needs one, and it shares its files with the GPU build, so the
+# second and third lines remove it and put the GPU build back. Turbo runs on the GPU through PyTorch (the CUDA build,
+# from the PyTorch index so that Windows gets CUDA too). English runs on the GPU through ONNX Runtime with CUDA and cuDNN.
+-r requirements-worker-common.txt
+--extra-index-url https://download.pytorch.org/whl/cu128
+torch==2.8.0
+transformers==4.57.6
+onnxruntime==1.22.1
+onnxruntime-gpu[cuda,cudnn]==1.22.0

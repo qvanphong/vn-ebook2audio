@@ -22,7 +22,7 @@ To move to another machine, copy `data/` and start the service there; models dow
 ## Upgrading
 
 1. Stop the service. Jobs in progress go back to `queued` and resume when it starts again (finished chapters are kept).
-2. Pull the new code and, for a native install, `pip install -r requirements.txt -r requirements-engine.txt`.
+2. Pull the new code and, for a native install, `pip install -r requirements.txt -r requirements-mac-cpu.txt` (or `requirements-nvidia-gpu.txt` on an NVIDIA GPU).
 3. Start it again. An older `engine.json` and an older job database are read and upgraded in place.
 4. **Restart workers too** if a release changed the worker protocol. The server still understands older workers (1 to
    3). A protocol 4 worker chooses and fetches its own models (`WORKER_MODELS`, `PRELOAD_MODELS`) and its own device.
@@ -35,9 +35,9 @@ page is read from disk on every load; the API code is only read at start.
 | Symptom | What to check |
 |---|---|
 | The voice list is empty and says the model is loading | First use downloads the model (several minutes on a slow link). The page retries by itself. Check the log for download errors and that the machine can reach huggingface.co |
-| `No module named 'fastapi'` (or `uvicorn`, `numpy`) when starting a worker | The packages are in a different Python than the one running `python -m app.worker`. Run `python -m pip install -r requirements-worker.txt` with that same `python`, and check with `python -c "import sys; print(sys.executable)"` |
+| `No module named 'fastapi'` (or `uvicorn`, `numpy`) when starting a worker | The packages are in a different Python than the one running `python -m app.worker`. Run `python -m pip install -r requirements-mac-cpu.txt` (or `requirements-nvidia-gpu.txt`) with that same `python`, and check with `python -c "import sys; print(sys.executable)"` |
 | `External data path escapes model directory` when a model loads (Turbo) | A newer ONNX Runtime refuses a model whose weights file is a symlink into another folder of the Hugging Face cache. Fixed in the code: the model is loaded from a folder of real links under `$HF_HOME/onnx-real` (no extra disk space where hard links work). Update the worker to the latest code and restart it. Older code worked around it by pinning ONNX Runtime to 1.22 |
-| "the voice models are not installed on this server" / a job fails with "needs the … package" | This server lacks `vieneu` or `supertonic`. Install `requirements-engine.txt`, or send speech to a worker |
+| "the voice models are not installed on this server" / a job fails with "needs the … package" | This server lacks `vieneu` or `supertonic`. Install the machine's requirements file (`requirements-mac-cpu.txt` or `requirements-nvidia-gpu.txt`), or send speech to a worker |
 | A job stops with "cannot reach the voice worker at …" | The worker is off, the address is wrong, or the network dropped for more than about 20 seconds. Start it and press Retry; finished chapters are kept |
 | "the worker rejected the token" | The token in Settings differs from the worker's `WORKER_TOKEN` |
 | A job stops with "no machine could finish the book (…)" | Every chosen machine failed; the message gives each reason (model not loadable, voice missing, offline) |

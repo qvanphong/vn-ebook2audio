@@ -1,0 +1,7 @@
+# A voice worker on the CPU: a Mac with Apple silicon, run natively in a Python 3.12 venv:
+#   python -m pip install -r requirements-mac-cpu.txt
+# No PyTorch. Turbo and Nano run on the CPU through ONNX Runtime. The macOS build of onnxruntime also includes the
+# CoreML provider (TTS_DEVICE=coreml, for English). The Linux and Windows CPU images (Dockerfile.worker*) install this
+# file too, since they run the same CPU packages.
+-r requirements-worker-common.txt
+onnxruntime==1.22.1

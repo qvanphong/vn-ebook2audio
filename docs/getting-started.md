@@ -55,11 +55,12 @@ then you add `http://<that machine>:8780` and the token under Settings → Voice
 ```bash
 cd nas-audiobook
 python3.12 -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt -r requirements-engine.txt
+pip install -r requirements.txt -r requirements-mac-cpu.txt
 DATA_DIR=./data python -m app
 ```
 
-`requirements-engine.txt` installs the speech models' code (VieNeu, Supertonic, ONNX Runtime). Leave it out if this
+`requirements-mac-cpu.txt` installs the speech models' code (VieNeu, Supertonic, ONNX Runtime) for a CPU. On a machine
+with an NVIDIA GPU, use `requirements-nvidia-gpu.txt` in its place (see [Voice workers](workers.md)). Leave it out if this
 machine will only send speech to workers. `onnxruntime` is pinned to 1.22.1 because 1.31 refused to load the Turbo
 model from the Hugging Face cache.
 

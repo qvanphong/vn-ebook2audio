@@ -1,8 +1,0 @@
-# What Turbo needs to run on an NVIDIA GPU: PyTorch with CUDA (VieNeu's own GPU path, not ONNX Runtime) and the
-# transformers version VieNeu pins. Install it on top of requirements-engine.txt:
-#   python -m pip install -r requirements-engine-torch-cuda.txt
-# The CUDA build of PyTorch brings its own CUDA and cuDNN libraries, so nothing else needs installing for Turbo. On
-# Linux the ordinary PyPI torch is already a CUDA build; the extra index below is for Windows, where PyPI's is CPU only.
---extra-index-url https://download.pytorch.org/whl/cu128
-torch==2.8.0
-transformers==4.57.6

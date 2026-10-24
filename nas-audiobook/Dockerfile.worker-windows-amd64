@@ -18,8 +18,8 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /srv
-COPY requirements.txt requirements-engine.txt ./
-RUN pip install --no-cache-dir -r requirements.txt -r requirements-engine.txt
+COPY requirements-worker-common.txt requirements-mac-cpu.txt ./
+RUN pip install --no-cache-dir -r requirements-mac-cpu.txt
 COPY app app
 
 # /data holds the downloaded models (so a restart or a new container does not download them again), the cloned
