@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from . import accel, catalog, tts
 from .config import Settings
 
-PROTOCOL = 4
+PROTOCOL = 4  # batching is a capability (health: capabilities.batch), not a new protocol, so older servers still work
 SUPPORTED_PROTOCOLS = (1, 2, 3, 4)
 MAX_TEXT_CHARS = 6000
 INFER_MODELS = ("nano",)  # what can be run from phonemes alone
@@ -39,6 +39,13 @@ class Inference(BaseModel):
 class Synthesis(BaseModel):
     model: str
     text: str
+    voice: str | None = None
+    temperature: float = 0.8
+
+
+class SynthesisBatch(BaseModel):
+    model: str
+    texts: list[str]
     voice: str | None = None
     temperature: float = 0.8
 
@@ -77,7 +84,7 @@ def create_worker_app(pool: tts.ModelPool, default_model: str, token: str | None
     @app.get("/health")
     def health():
         return {"ok": True, "protocol": PROTOCOL, "name": name, "device": accel.status(), "models": {m: {"ready": pool.ready(m)} for m in tts.MODEL_MODES},
-                "capabilities": {"synthesize": text_ok, "infer": list(INFER_MODELS), "clone": text_ok}}
+                "capabilities": {"synthesize": text_ok, "infer": list(INFER_MODELS), "clone": text_ok, "batch": text_ok}}
 
     @app.get("/models")
     def models():
@@ -113,6 +120,29 @@ def create_worker_app(pool: tts.ModelPool, default_model: str, token: str | None
         pcm = (np.clip(audio, -1.0, 1.0) * 32767.0).astype("<i2").tobytes()
         return Response(pcm, media_type="application/octet-stream",
                         headers={"X-Sample-Rate": str(tts.SAMPLE_RATES[request.model])})
+
+    @app.post("/synthesize_batch")
+    def synthesize_batch(request: SynthesisBatch):
+        """Several texts in one request (capability `batch`). The body is the mono 16-bit PCM of all of them one after the
+        other; X-Sample-Counts lists how many samples each text has, in order."""
+        if not text_ok:
+            raise HTTPException(501, "this worker only accepts phonemes: use /infer")
+        if not 1 <= len(request.texts) <= tts.MAX_BATCH:
+            raise HTTPException(400, f"send between 1 and {tts.MAX_BATCH} texts per request")
+        if any(len(text) > MAX_TEXT_CHARS for text in request.texts):
+            raise HTTPException(400, f"text is longer than {MAX_TEXT_CHARS} characters")
+        serve(request.model)
+        try:
+            pool.ensure(request.model)
+            audios = pool.synthesize_many(request.model, request.texts, request.voice, request.temperature)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        except tts.ModelLoading as exc:
+            raise loading(exc)
+        pcm = b"".join((np.clip(audio, -1.0, 1.0) * 32767.0).astype("<i2").tobytes() for audio in audios)
+        return Response(pcm, media_type="application/octet-stream",
+                        headers={"X-Sample-Rate": str(tts.SAMPLE_RATES[request.model]),
+                                 "X-Sample-Counts": ",".join(str(len(audio)) for audio in audios)})
 
     @app.post("/infer")
     def infer(request: Inference):

@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 
 from . import accel, catalog
 from .fleet import LOCAL_ID, Node, WorkerConfig, probe
-from .tts import CloneStore, ModelPool
+from .tts import MAX_BATCH, CloneStore, ModelPool
 from .remote import WorkerError
 
 STATUS_CACHE_SECONDS = 4.0
@@ -33,6 +33,7 @@ class WorkerOwnsModels(ConfigError):
 class EngineConfig:
     local_enabled: bool = True
     workers: tuple[WorkerConfig, ...] = ()
+    local_batch: int = 1
 
 
 PoolFactory = Callable[[WorkerConfig | None], ModelPool]
@@ -50,6 +51,12 @@ def normalize_url(url: str | None) -> str:
 
 def local_available() -> bool:
     return importlib.util.find_spec("vieneu") is not None
+
+
+def check_batch(value: int) -> int:
+    if not 1 <= value <= MAX_BATCH:
+        raise ConfigError(f"texts per request must be between 1 and {MAX_BATCH}, not {value}")
+    return value
 
 
 def default_config(backend: str, worker_url: str | None, worker_token: str | None) -> EngineConfig:
@@ -89,10 +96,11 @@ class EngineConfigStore:
         if "backend" in data:  # the single-worker format of earlier versions
             return default_config(data["backend"], data.get("worker_url"), data.get("worker_token"))
         try:
-            workers = tuple(WorkerConfig(w["id"], w["name"], w["url"], w.get("token"), bool(w.get("enabled", True)))
+            workers = tuple(WorkerConfig(w["id"], w["name"], w["url"], w.get("token"), bool(w.get("enabled", True)),
+                                         int(w.get("batch", 1)))
                             for w in data.get("workers", []))
-            return EngineConfig(bool(data.get("local_enabled", True)), workers)
-        except (KeyError, TypeError):
+            return EngineConfig(bool(data.get("local_enabled", True)), workers, int(data.get("local_batch", 1)))
+        except (KeyError, TypeError, ValueError):
             return default
 
     def save(self, config: EngineConfig) -> None:
@@ -118,12 +126,12 @@ class EngineController:
 
     def _build(self, config: EngineConfig, old: dict[str, Node]) -> dict[str, Node]:
         local = old.get(LOCAL_ID) or Node(LOCAL_ID, "This server", self._make_pool(None), None, config.local_enabled)
-        local.enabled = config.local_enabled
+        local.enabled, local.batch = config.local_enabled, config.local_batch
         nodes = {LOCAL_ID: local}
         for w in config.workers:
             kept = old.get(w.id)
             same = kept is not None and kept.config is not None and (kept.config.url, kept.config.token) == (w.url, w.token)
-            nodes[w.id] = Node(w.id, w.name, kept.pool if same else self._make_pool(w), w, w.enabled)
+            nodes[w.id] = Node(w.id, w.name, kept.pool if same else self._make_pool(w), w, w.enabled, w.batch)
         return nodes
 
     def nodes(self) -> list[Node]:
@@ -173,11 +181,13 @@ class EngineController:
 
     def view(self) -> dict:
         local = self._nodes[LOCAL_ID]
-        return {"local": {"available": local_available(), "enabled": local.enabled, "models": local.pool.status()},
-                "workers": [{"id": w.id, "name": w.name, "url": w.url, "has_token": bool(w.token), "enabled": w.enabled}
+        return {"local": {"available": local_available(), "enabled": local.enabled, "batch": local.batch,
+                          "models": local.pool.status()},
+                "workers": [{"id": w.id, "name": w.name, "url": w.url, "has_token": bool(w.token), "enabled": w.enabled,
+                             "batch": w.batch}
                             for w in self.config.workers]}
 
-    def apply(self, local_enabled: bool, workers: Sequence[dict]) -> dict:
+    def apply(self, local_enabled: bool, workers: Sequence[dict], local_batch: int = 1) -> dict:
         if local_enabled and not local_available():
             raise ConfigError("this server does not have the voice models installed, so it cannot run them itself")
         with self._lock:
@@ -193,8 +203,8 @@ class EngineController:
                 token = raw.get("token") or (None if raw.get("clear_token") or before is None else before.token)
                 name = (raw.get("name") or "").strip() or urlparse(url).hostname
                 built.append(WorkerConfig(before.id if before else uuid.uuid4().hex[:8], name, url, token,
-                                          bool(raw.get("enabled", True))))
-            new = EngineConfig(local_enabled, tuple(built))
+                                          bool(raw.get("enabled", True)), check_batch(int(raw.get("batch", 1)))))
+            new = EngineConfig(local_enabled, tuple(built), check_batch(local_batch))
             if not (new.local_enabled or any(w.enabled for w in new.workers)):
                 raise ConfigError("turn on at least one machine, or nothing could make the speech")
             self._nodes = self._build(new, self._nodes)
@@ -222,12 +232,14 @@ class EngineController:
         for n in nodes:
             if n.config is None:
                 models = n.pool.status()
-                out.append({"id": n.id, "name": n.label, "kind": "local", "enabled": n.enabled, "online": local_available(),
+                out.append({"id": n.id, "name": n.label, "kind": "local", "enabled": n.enabled, "batch": n.batch,
+                            "online": local_available(),
                             "models": models, "device": accel.status(), "capabilities": {"synthesize": True, "clone": True},
                             "error": None if local_available() else "the voice models are not installed on this server"})
                 continue
             p = probes[n.id]
             out.append({"id": n.id, "name": n.label, "kind": "remote", "url": n.config.url, "enabled": n.enabled,
+                        "batch": n.batch,
                         "online": p["ok"], "latency_ms": p.get("latency_ms"), "error": p.get("error"),
                         "device": p.get("device"),
                         "models": p["states"] if p.get("states") else

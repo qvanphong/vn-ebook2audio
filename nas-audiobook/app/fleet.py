@@ -23,13 +23,15 @@ class WorkerConfig:
     url: str
     token: str | None = None
     enabled: bool = True
+    batch: int = 1  # texts sent in one request; 1 keeps the one-sentence-per-request behaviour
 
 
 class Node:
     """One machine. `pool` is where its models run (here, or behind a worker's address)."""
 
-    def __init__(self, id: str, name: str, pool: ModelPool, config: WorkerConfig | None, enabled: bool):
+    def __init__(self, id: str, name: str, pool: ModelPool, config: WorkerConfig | None, enabled: bool, batch: int = 1):
         self.id, self.label, self.pool, self.config, self.enabled = id, name, pool, config, enabled
+        self.batch = batch
 
     @property
     def kind(self) -> str:
@@ -39,7 +41,7 @@ class Node:
         """Get this machine ready for `spec` (download and load the model, send a missing cloned voice), then
         return an engine that speaks it. Blocks while the model loads; raises LaneError if it cannot."""
         self.pool.prepare(spec, report)
-        return VieneuEngine(self.pool, spec)
+        return VieneuEngine(self.pool, spec, self.batch)
 
 
 def probe(url: str, token: str | None, timeout: float = PROBE_SECONDS) -> dict:

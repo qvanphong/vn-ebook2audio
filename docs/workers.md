@@ -314,4 +314,6 @@ is off while such a worker is the voice-list source. Try it without a phone by s
 A worker is anything that implements the endpoints in [HTTP API](api.md#voice-worker-protocol-version-3). The current
 protocol is **4**; the server also understands 1, 2 and 3. Protocol 4 removed `POST /models/{model}/ensure` (the worker
 fetches models itself) and added `offered` and `device` to each model in `GET /models`; protocol 3 added `GET /models`;
-protocol 2 added `POST /infer` and `capabilities`.
+protocol 2 added `POST /infer` and `capabilities`. Batching (`POST /synthesize_batch`, advertised as `capabilities.batch`)
+was added without a new protocol number, so older servers keep working with it. A worker on the **Texts per request**
+setting larger than 1 sends that many sentences in one request; a worker without the capability gets one at a time.

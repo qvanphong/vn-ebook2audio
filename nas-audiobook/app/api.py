@@ -16,9 +16,10 @@ from .calibre import CalibreClient, CalibreConfig, CalibreError, CalibreStore, n
 from .books import MIN_CHAPTER_CHARS, ParamError, default_selection
 from .config import Settings
 from .engine_config import ConfigError, EngineController, WorkerOwnsModels
-from .jobs import JobStore
+from .jobs import CLEARABLE, JobStore
 from .library import Library, LibraryError, md5_file
-from .model import ACTIVE, Cover, Plan, Voice
+from .model import ACTIVE, Cover, Plan, State, Voice
+from .presets import PresetError, PresetMissing, PresetStore
 from .remote import WorkerError
 from .samples import SampleError, SampleStore
 from .uploads import UploadStore
@@ -43,10 +44,12 @@ class WorkerEntry(BaseModel):
     token: str | None = None
     clear_token: bool = False
     enabled: bool = True
+    batch: int = 1
 
 
 class EngineChoice(BaseModel):
     local_enabled: bool = True
+    local_batch: int = 1
     workers: list[WorkerEntry] = Field(default_factory=list)
 
 
@@ -68,6 +71,20 @@ class CalibreImport(BaseModel):
     title: str = "book"
     format: str
     cover: str | None = None  # Calibre-Web's own cover for the book; used instead of the one inside the file
+
+
+class ClearJobs(BaseModel):
+    states: list[str]
+
+
+class PresetIn(BaseModel):
+    id: str | None = None
+    name: str
+    model: str
+    voice: str | None = None
+    dialog_voice: str | None = None
+    temperature: float = Field(0.8, ge=0.05, le=2.0)
+    read_titles: bool = True
 
 
 class BookDetails(BaseModel):
@@ -114,6 +131,7 @@ def create_app(settings: Settings, store: JobStore, pool, uploads: UploadStore |
     async def worker_failed(_request, exc: WorkerError):
         return JSONResponse({"detail": str(exc)}, status_code=502)
     calibre_store = CalibreStore(settings.calibre_config)
+    presets = PresetStore(settings.presets_config)
 
     @app.exception_handler(CalibreError)
     async def calibre_failed(_request, exc: CalibreError):
@@ -183,7 +201,7 @@ def create_app(settings: Settings, store: JobStore, pool, uploads: UploadStore |
     @app.put("/api/engine")
     def engine_save(choice: EngineChoice):
         try:
-            return engine_or_404().apply(choice.local_enabled, [w.model_dump() for w in choice.workers])
+            return engine_or_404().apply(choice.local_enabled, [w.model_dump() for w in choice.workers], choice.local_batch)
         except ConfigError as exc:
             raise HTTPException(422, str(exc))
 
@@ -277,6 +295,29 @@ def create_app(settings: Settings, store: JobStore, pool, uploads: UploadStore |
             updated = True
         return {"id": up.id, "filename": up.name, "md5": md5s[up.id],
                 "cover": "calibre-web" if cover else "file", "library_cover_updated": updated}
+
+    @app.get("/api/presets")
+    def preset_list():
+        return [asdict(p) for p in presets.list()]
+
+    @app.post("/api/presets")
+    def preset_save(preset: PresetIn):
+        """Update the preset with this id (or this name), or create one. Returns the saved preset."""
+        if preset.model not in tts.MODEL_MODES:
+            raise HTTPException(422, f"unknown model {preset.model!r}")
+        try:
+            return asdict(presets.save(id=preset.id, name=preset.name, model=preset.model, voice=preset.voice,
+                                       dialog_voice=preset.dialog_voice, temperature=preset.temperature,
+                                       read_titles=preset.read_titles))
+        except PresetMissing as exc:
+            raise HTTPException(404, str(exc))
+        except PresetError as exc:
+            raise HTTPException(422, str(exc))
+
+    @app.delete("/api/presets/{preset_id}", status_code=204)
+    def preset_delete(preset_id: str):
+        if not presets.delete(preset_id):
+            raise HTTPException(404, "no such preset")
 
     @app.get("/api/models")
     def model_catalog():
@@ -563,12 +604,31 @@ def create_app(settings: Settings, store: JobStore, pool, uploads: UploadStore |
             raise HTTPException(404, "no such job")
         return found.public()
 
+    @app.post("/api/jobs/{job_id}/pause")
+    def pause(job_id: str):
+        found = store.request_pause(job_id)
+        if found is None:
+            raise HTTPException(404, "no such job")
+        return found.public()
+
     @app.post("/api/jobs/{job_id}/retry")
     def retry(job_id: str):
+        """Queue a cancelled, failed or paused job again; finished chapters are reused."""
         found = store.retry(job_id)
         if found is None:
             raise HTTPException(404, "no such job")
         return found.public()
+
+    @app.post("/api/jobs/clear")
+    def clear_jobs(request: ClearJobs):
+        """Remove jobs from the list by state (done, error, cancelled, paused). Audio is kept; active jobs are not touched."""
+        try:
+            states = [State(s) for s in request.states]
+        except ValueError as exc:
+            raise HTTPException(422, f"unknown job state: {exc}")
+        if not states or any(s not in CLEARABLE for s in states):
+            raise HTTPException(422, "only done, error, cancelled and paused jobs can be cleared")
+        return {"removed": store.clear(states)}
 
     @app.delete("/api/jobs/{job_id}", status_code=204)
     def delete(job_id: str):

@@ -85,6 +85,7 @@ class State(StrEnum):
     DONE = "done"
     ERROR = "error"
     CANCELLED = "cancelled"
+    PAUSED = "paused"  # stopped by the user, keeps its finished chapters, resumes with retry
 
 
 ACTIVE = (State.QUEUED, State.RUNNING, State.ASSEMBLING)
