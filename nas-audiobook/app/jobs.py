@@ -225,7 +225,9 @@ class FactoryLane:
         return [self]
 
 
-def render_chapter(chapter: Chapter, engine: Engine, sample_rate: int, check, on_clip) -> np.ndarray:
+def render_chapter(chapter: Chapter, engine: Engine, sample_rate: int, check, on_clip) -> list[np.ndarray]:
+    """The chapter's audio as the clips and pauses in order. They are not joined into one array: an hour of Turbo audio
+    is about 700 MB, and joining and converting it needed three times that at once."""
     parts: list[np.ndarray] = []
     total = len(chapter.clips)
     for i, clip in enumerate(chapter.clips):
@@ -233,7 +235,7 @@ def render_chapter(chapter: Chapter, engine: Engine, sample_rate: int, check, on
         on_clip(i, total)
         parts.append(engine.synthesize(clip.text, clip.dialog))
         parts.append(np.zeros(int(sample_rate * clip.pause_ms / 1000), dtype=np.float32))
-    return np.concatenate(parts) if parts else np.zeros(0, dtype=np.float32)
+    return parts
 
 
 def chapter_filename(chapter: Chapter, voice_sig: str) -> str:
@@ -480,7 +482,7 @@ class Conversion:
                            clip_count=len(chapter.clips))
         audio = render_chapter(chapter, engine, engine.sample_rate, self._check,
                                lambda i, n: self.progress.lane(lane.id, clip_index=i, clip_count=n))
-        seconds = len(audio) / engine.sample_rate
+        seconds = sum(len(part) for part in audio) / engine.sample_rate
         name = self.names[index]
         book, spec = self.book, self.spec
         tags = {"title": chapter.title, "artist": book.author, "album_artist": book.author, "album": book.title,

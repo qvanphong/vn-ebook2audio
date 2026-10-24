@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterable
 
 import numpy as np
 
@@ -42,8 +43,32 @@ def _run(cmd: list[str], tmp: Path, out: Path, stdin: bytes | None = None) -> No
     tmp.replace(out)
 
 
-def encode_chapter(audio: np.ndarray, sample_rate: int, out: Path, tags: dict[str, str], cover: Cover | None) -> None:
-    """Encode one chapter of mono float audio to an AAC .m4a with tags and optional cover, written atomically."""
+def _run_streaming(cmd: list[str], tmp: Path, out: Path, pieces: Iterable[np.ndarray]) -> None:
+    """Like _run, but feeds ffmpeg one piece of audio at a time, so a long chapter is never copied as a whole."""
+    with tempfile.TemporaryFile() as err:
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=err)
+        try:
+            for piece in pieces:
+                proc.stdin.write(np.ascontiguousarray(piece, dtype="<f4").data)
+        except BrokenPipeError:
+            pass  # ffmpeg stopped early; its exit code and message below say why
+        finally:
+            try:
+                proc.stdin.close()
+            except BrokenPipeError:
+                pass
+            code = proc.wait()
+        if code != 0:
+            err.seek(0)
+            tmp.unlink(missing_ok=True)
+            raise RuntimeError(f"ffmpeg failed: {err.read().decode(errors='replace')[-400:]}")
+    tmp.replace(out)
+
+
+def encode_chapter(audio: np.ndarray | Iterable[np.ndarray], sample_rate: int, out: Path, tags: dict[str, str],
+                   cover: Cover | None) -> None:
+    """Encode one chapter of mono float audio (one array, or a sequence of pieces played one after another) to an AAC
+    .m4a with tags and optional cover, written atomically."""
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_name(out.name + ".part")
     with tempfile.TemporaryDirectory() as d:
@@ -58,7 +83,7 @@ def encode_chapter(audio: np.ndarray, sample_rate: int, out: Path, tags: dict[st
         if cover:
             cmd += ["-map", "1:v", "-c:v", "copy", "-disposition:v", "attached_pic"]
         cmd += ["-c:a", "aac", "-b:a", AAC_BITRATE, "-movflags", "+faststart", "-f", "ipod", str(tmp)]
-        _run(cmd, tmp, out, audio.astype("<f4").tobytes())
+        _run_streaming(cmd, tmp, out, [audio] if isinstance(audio, np.ndarray) else audio)
 
 
 def retag(path: Path, tags: dict[str, str]) -> None:

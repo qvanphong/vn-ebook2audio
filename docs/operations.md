@@ -44,6 +44,7 @@ page is read from disk on every load; the API code is only read at start.
 | A machine is greyed out in "Run on" | It is offline, cannot run the chosen model (a phone with a non-Nano model), or cannot use the cloned voice you chose |
 | Conversion is slower than expected in Docker | On an Apple Mac, Docker Desktop ran the same model about six times slower than native. Set `TTS_THREADS` to the CPUs available, and measure with `python -m app.bench` |
 | Out of memory | A model stays loaded once loaded: Nano about 700 MB, Turbo about 1.6 GB. Do not preload more than you use; nothing unloads a model |
+| A long chapter reaches its last clip, then the job starts it again from clip 0 | The server ran out of memory while it joined and encoded the chapter and the container restarted; a restart puts running jobs back in the queue. Check `docker compose logs` for a restart and `docker inspect` for `OOMKilled`. The chapter audio now goes to ffmpeg piece by piece, so the server needs about the size of the chapter's audio (an hour of Turbo is about 700 MB) instead of three times that. Update the server |
 | A PDF is refused | It has no text layer (a scan). OCR it first |
 | MOBI, AZW3 or FB2 fails | Calibre's `ebook-convert` is not installed (build the image with `WITH_CALIBRE=1`) |
 | Chapters are split wrongly | Try another book processor in step 2 and use **Peek**; see [Book processing](book-processing.md) |
