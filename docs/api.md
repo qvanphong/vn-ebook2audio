@@ -10,7 +10,7 @@ unsupported file type, 502 when a voice worker or Calibre-Web refused or could n
 
 ## Quick conversion for scripts
 
-`POST /api/jobs` (multipart: `file`, optional `model`, `voice`, `dialog_voice`, `temperature`, `read_titles`) queues a
+`POST /api/jobs` (multipart: `file`, optional `model`, `voice`, `dialog_voice`, `voice_params`, `read_titles`) queues a
 book with automatic chapter detection and every readable chapter, and returns the job. Chapters that already have audio
 in the same voice settings are skipped. Without `model` the book's language chooses it (English starts on the English
 model). 415 for an unsupported extension.
@@ -27,11 +27,12 @@ curl -F file=@book.epub -F model=nano http://NAS:8765/api/jobs
 | `GET /api/uploads/{id}` | `{id, filename, md5, kind, title, author, language, has_cover, in_library, audio_count, processors: [...]}`. `kind` is `epub` or `text`. Each processor is `{id, label, description, params: [{name, label, kind, default, choices, help}]}`; only processors that can read the file are listed |
 | `GET /api/uploads/{id}/cover` | The book's cover image; 404 if it has none |
 | `POST /api/uploads/{id}/preview` `{processor, params}` | Step 2. `{md5, title, author, language, processor, params, note, audio_count, chapters: [...]}`. Each chapter: `{index, title, chars, seconds, head, tail, selected, text_hash, audio: [...]}` where `audio` lists existing files for that chapter (voice, model, file name, `voice_label`). `processor` defaults to `auto`; 422 for a bad setting or an unreadable book |
-| `POST /api/uploads/{id}/convert` | Step 3. Body `{processor, params, selection, overwrite, title, author, model, voice, dialog_voice, temperature, read_titles, workers}`. `selection` is a list of chapter indexes (omitted = the recommended ones); `overwrite` replaces existing audio in the same voice settings (otherwise those chapters are skipped); `workers` is a list of machine ids from `/api/workers` (omitted = every machine that is on; unknown ids are dropped; none left = 422). Returns 201 with the job plus `already_had_audio`. The stored upload is moved into `data/books/<md5>/` |
+| `POST /api/uploads/{id}/convert` | Step 3. Body `{processor, params, selection, overwrite, title, author, model, voice, dialog_voice, voice_params, read_titles, workers}`. `voice_params` is an object of the model's settings (see `GET /api/params`; `params` stays the chapter splitting's). `selection` is a list of chapter indexes (omitted = the recommended ones); `overwrite` replaces existing audio in the same voice settings (otherwise those chapters are skipped); `workers` is a list of machine ids from `/api/workers` (omitted = every machine that is on; unknown ids are dropped; none left = 422). Returns 201 with the job plus `already_had_audio`. The stored upload is moved into `data/books/<md5>/` |
 | `DELETE /api/uploads/{id}` | Discard an upload |
+| `GET /api/params` | Per model, the settings it has: `[{key, label, kind, default, min, max, step, help}]`. `default` null means the model chooses. The keys are the names the engines take |
 | `GET /api/processors` | Every processor with its settings |
 
-Model, voice, dialogue voice, expressiveness and title reading default to the environment settings and the book's
+Model, voice, dialogue voice, the model's voice settings and title reading default to the environment settings and the book's
 language (see [Models and voices](voices-and-models.md)). A default voice never carries over to a model it does not
 belong to.
 
@@ -51,7 +52,7 @@ A job:
 ```json
 {
   "id": "494c497c284c", "title": "…", "state": "running",
-  "model": "english", "voice": "M2", "dialog_voice": "F2", "temperature": 0.8, "read_titles": true,
+  "model": "english", "voice": "M2", "dialog_voice": "F2", "params": {"speed": 1.05, "total_steps": 8, "silence_duration": 0.3, "max_chunk_length": 300}, "read_titles": true,
   "chapters_done": 1, "chapters_total": 2, "output": ".../library/<md5>", "error": null, "book_md5": "…",
   "created": 1792740000.0, "updated": 1792740030.0,
   "processor": "auto", "selected": 2,
@@ -70,7 +71,7 @@ has a `state` of `waiting`, `preparing` (with `detail` saying what: loading, dow
 | Call | Meaning |
 |---|---|
 | `GET /api/library` | Every book: `{md5, title, author, language, source_name, has_cover, audio_count, seconds, voices, updated}` |
-| `GET /api/library/{md5}` | The manifest without its file list, plus `groups`: one per voice settings, `{voice_sig, label, model, voice, dialog_voice, temperature, seconds, bytes, files: [...]}` |
+| `GET /api/library/{md5}` | The manifest without its file list, plus `groups`: one per voice settings, `{voice_sig, label, model, voice, dialog_voice, params, seconds, bytes, files: [...]}` |
 | `PATCH /api/library/{md5}` `{title, author}` | Rename; also rewrites the tags of every chapter file without re-encoding |
 | `GET /api/library/{md5}/cover` | The cover image |
 | `GET /api/library/{md5}/audio/{file}` (`?download=true` to save) | A chapter file, with range requests so players can seek. Playable while the job still runs |
@@ -84,7 +85,7 @@ has a `state` of `waiting`, `preparing` (with `detail` saying what: loading, dow
 |---|---|
 | `GET /api/models` | The catalogue: `[{id, label, language, description, size_mb}]` |
 | `GET /api/voices?model=` | `{voices: [{id, label, cloned}], ready, error}` from the first machine that is on. `ready: false` means the list came from the saved copy and the model is still loading. Asking starts loading the model if it is not loaded. 503 only when nothing has been saved yet |
-| `GET /api/voice-sample?model=&voice=&text=&temperature=` | A short MP3 of a voice, cached on disk. `text` up to 300 characters |
+| `GET /api/voice-sample?model=&voice=&text=&voice_params=` | A short MP3 of a voice, cached on disk. `text` up to 300 characters |
 | `POST /api/voices` (multipart `name`, `file`) | Clone a voice from a 3–15 s clip. 201 `{id, cloned: true}`. 400 for a bad clip or a built-in name |
 | `DELETE /api/voices/{name}` | Remove a cloned voice here and on every worker that can be reached |
 
@@ -100,13 +101,13 @@ has a `state` of `waiting`, `preparing` (with `detail` saying what: loading, dow
 
 ## Presets
 
-A preset is a saved engine (model), narrator, dialogue voice, expressiveness and titles setting, kept in
+A preset is a saved engine (model), narrator, dialogue voice, the model's voice settings and titles setting, kept in
 `data/config/presets.json`. Names are unique and do not depend on capitals.
 
 | Call | Meaning |
 |---|---|
-| `GET /api/presets` | `[{id, name, model, voice, dialog_voice, temperature, read_titles}]` |
-| `POST /api/presets` `{id?, name, model, voice?, dialog_voice?, temperature?, read_titles?}` | Save a preset. With `id` it updates that one (404 if it is gone); without, a preset with the same name is updated, else one is created. 422 for an unknown model, a name that is empty or longer than 60 characters, or a name another preset has |
+| `GET /api/presets` | `[{id, name, model, voice, dialog_voice, params, read_titles}]`. `params` holds every setting of the model |
+| `POST /api/presets` `{id?, name, model, voice?, dialog_voice?, params?, read_titles?}` | Save a preset. With `id` it updates that one (404 if it is gone); without, a preset with the same name is updated, else one is created. 422 for an unknown model, a setting the model does not have or a value out of its range, a name that is empty or longer than 60 characters, or a name another preset has |
 | `DELETE /api/presets/{id}` | Remove a preset. 404 if there is none |
 
 ## Calibre-Web
@@ -123,7 +124,7 @@ A preset is a saved engine (model), narrator, dialogue voice, expressiveness and
 ## Other
 
 `GET /healthz` → `{"ok": true}` (the Docker health check); `GET /` serves the page; `GET /api/defaults` →
-`{model, voice, dialog_voice, english, temperature, read_titles, formats, min_chapter_chars, chars_per_second}`
+`{model, voice, dialog_voice, english, read_titles, formats, min_chapter_chars, chars_per_second}`
 (`english` is what an English book starts with, or `null`).
 
 ## Voice worker protocol (version 4)
@@ -133,12 +134,12 @@ needs `Authorization: Bearer <token>` (401 otherwise). The server also understan
 
 | Call | Meaning |
 |---|---|
-| `GET /health` | `{ok, protocol: 4, name, device, models: {<id>: {ready}}, capabilities: {synthesize, infer: ["nano"], clone, batch}}`. `synthesize: false` means the worker takes phonemes only (use `/infer`). `batch: true` means `/synthesize_batch` is there; a worker without the key takes one text per request |
+| `GET /health` | `{ok, protocol: 4, name, device, models: {<id>: {ready}}, capabilities: {synthesize, infer: ["nano"], clone, batch, params}}`. `synthesize: false` means the worker takes phonemes only (use `/infer`). `params: true` means `/synthesize` and `/synthesize_batch` take `params`, an object with any of the model's settings (the keys of `GET /api/params`; a worker answers 400 for a setting the model does not have or a value out of range, and fills in those left out). A worker without it only takes `temperature`, which a worker with it still reads for Turbo. `batch: true` means `/synthesize_batch` is there; a worker without the key takes one text per request |
 | `GET /models` | `{models: {<id>: {state, ready, loading, downloaded, offered, supported, device, bytes, size_mb, error}}}`. `state`: `ready` (in memory), `loading`, `downloading` (`bytes` arrived so far), `downloaded` (on disk, not loaded), `absent`, `error`. `offered: false` means the worker chose not to serve it (`/voices`, `/synthesize` and `/infer` answer 501); `supported: false` means it could never run it; `device` is `{device, fallback, note}`, where the worker runs the model (`cpu`, `cuda`, ...), its own decision |
 | `GET /voices?model=` | `{voices: [{id, label, cloned}], ready, error}`; 503 `{"detail": {"loading": true}}` while the model loads (asking also starts the load) |
-| `POST /synthesize` `{model, text, voice, temperature}` | Text in (up to 6,000 characters). Out: mono 16-bit little-endian PCM, sample rate in the `X-Sample-Rate` header (24000 Nano, 48000 Turbo, 44100 English). 501 if `synthesize` is false |
-| `POST /synthesize_batch` `{model, texts, voice, temperature}` | 1 to 32 texts (each up to 6,000 characters) in one request, when `capabilities.batch` is true. Out: the PCM of every text one after another, the sample rate in `X-Sample-Rate`, and `X-Sample-Counts`, the number of samples of each text in order, comma-separated. A VieneuTTS worker batches them on a GPU; on a CPU it runs them one by one |
-| `POST /infer` `{model, phonemes, voice, steps, cfg, speed, seed}` | One already-phonemised chunk in, one chunk of audio out (PCM as above, trimmed and faded). Nano only; the worker does no text work |
+| `POST /synthesize` `{model, text, voice, params}` | Text in (up to 6,000 characters). Out: mono 16-bit little-endian PCM, sample rate in the `X-Sample-Rate` header (24000 Nano, 48000 Turbo, 44100 English). 501 if `synthesize` is false |
+| `POST /synthesize_batch` `{model, texts, voice, params}` | 1 to 32 texts (each up to 6,000 characters) in one request, when `capabilities.batch` is true. Out: the PCM of every text one after another, the sample rate in `X-Sample-Rate`, and `X-Sample-Counts`, the number of samples of each text in order, comma-separated. A VieneuTTS worker batches them on a GPU; on a CPU it runs them one by one |
+| `POST /infer` `{model, phonemes, voice, steps, cfg, sway, speed, seed}` | One already-phonemised chunk in, one chunk of audio out (PCM as above, trimmed and faded). Nano only; the worker does no text work |
 | `POST /clones` (multipart `name`, `file`), `DELETE /clones/{name}` | Add or remove a cloned voice. 501 if `clone` is false |
 
 The server's side of the protocol: a request is retried on network errors and on 503 up to four times with growing

@@ -34,14 +34,16 @@ then shows:
 
 ### 3. Choose a voice
 
-- **Presets.** A saved set of engine (model), narrator, dialogue voice and expressiveness. Pick one to apply it. To keep
+- **Presets.** A saved set of engine (model), narrator, dialogue voice and every voice setting of that model. Pick one to apply it. To keep
   the settings on the form as a preset, type a name and press **Save preset**; with a preset picked and no name typed,
   the button updates that preset. **Delete** removes the picked one. Presets are kept on the server, so every browser
   sees them.
 - **Model.** English (Supertonic), Vietnamese Nano or Vietnamese Turbo. When you upload an English book the page
   switches to English and its voices and says so; a Vietnamese book switches back to your Vietnamese default.
-- **Expressiveness.** How varied the Vietnamese voices are (higher is more expressive and less steady). Hidden for the
-  English model, which has no such setting.
+- **Voice settings.** Shown under the model, and different for each: Nano has speed, quality steps, guidance, sway, seed
+  and the longest piece; Turbo has speed (applied to the finished audio, so extremes sound less natural), expressiveness (temperature), top K, top P, the repetition penalty and window, the
+  longest piece in frames and in characters; English has speed, quality steps, the pause between pieces and the longest
+  piece. An empty box uses the model's own value. Each box says what it does.
 - **Narrator** and **Dialogue (quoted speech).** The narrator reads everything; if you choose a dialogue voice, text
   inside quotation marks (three words or more) and lines that start with a dash are read by it.
 - **Read each chapter title aloud.** On by default.
@@ -64,8 +66,8 @@ length, splitting method, voice, machines, and where the files will be saved. It
 - *N selected chapters already have audio in this voice.* Converting again replaces them. You can **Skip the N with
   audio**, or **Convert all (replace)**.
 - *N have audio in another voice.* The new audio is added next to it; nothing is replaced. Such a chapter shows two
-  small buttons: **ℹ️** opens what that audio was made with (engine, narrator, dialogue voice, expressiveness, whether
-  titles were read, when it was made, its length and file), and **✍️** sets the engine, voices and expressiveness on
+  small buttons: **ℹ️** opens what that audio was made with (engine, narrator, dialogue voice, every voice setting, whether
+  titles were read, when it was made, its length and file), and **✍️** sets the engine, voices and voice settings on
   the form to match the newest of that audio, so the chapter converts in the same voice.
 
 **Start over** discards the uploaded file and returns to step 1.

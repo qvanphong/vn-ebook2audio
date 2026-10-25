@@ -4,25 +4,27 @@ import pytest
 from app.engine_config import EngineConfigStore, EngineConfig
 from app.fleet import WorkerConfig
 from app.model import Voice
+from app.params import resolve
 from app.remote import RemoteHandle
 from app.tts import MAX_BATCH, ModelPool, VieneuEngine
 from conftest import FakeBackend
 from test_engine import api
 from test_worker import TOKEN, auth, make_worker, remote_pool
 
-SPEC = Voice("nano", "Mỹ Duyên", 0.7, True)
+SPEC = Voice("nano", "Mỹ Duyên", resolve("nano", {"speed": 1.2}), True)
+OPTIONS = {"speed": 1.2, "sway": 0.0, "max_chars": 140}
 
 
 def test_worker_answers_several_texts_in_one_request_with_each_length(tmp_path):
     c, pool, backend = make_worker(tmp_path)
     pool.get("nano")
     texts = ["Xin chào", "Các bạn", "Tạm biệt nhé"]
-    r = c.post("/synthesize_batch", json={"model": "nano", "texts": texts, "voice": "Mỹ Duyên", "temperature": 0.7},
-               headers=auth())
+    r = c.post("/synthesize_batch", json={"model": "nano", "texts": texts, "voice": "Mỹ Duyên",
+                                               "params": {"speed": 1.2}}, headers=auth())
     assert r.status_code == 200 and r.headers["x-sample-rate"] == "24000"
     counts = [int(n) for n in r.headers["x-sample-counts"].split(",")]
     assert counts == [int(24000 * 0.01 * len(t)) for t in texts] and len(r.content) == 2 * sum(counts)
-    assert backend.batch_calls == [("nano", texts, "Mỹ Duyên", 0.7)]
+    assert backend.batch_calls == [("nano", texts, "Mỹ Duyên", OPTIONS)]
 
 
 def test_worker_batch_checks_its_limits_and_refuses_phone_only_workers(tmp_path):
@@ -40,9 +42,9 @@ def test_remote_batch_gives_the_same_audio_as_one_text_at_a_time_in_one_request(
     c, _, fake = make_worker(tmp_path)
     pool, _ = remote_pool(tmp_path, c)
     texts = ["Xin chào các bạn", "Hôm nay trời đẹp", "Hẹn gặp lại"]
-    together = pool.synthesize_many("nano", texts, "Mỹ Duyên", 0.8)
+    together = pool.synthesize_many("nano", texts, "Mỹ Duyên", {})
     assert len(fake.batch_calls) == 1 and fake.batch_calls[0][1] == texts
-    apart = [pool.synthesize("nano", t, "Mỹ Duyên", 0.8) for t in texts]
+    apart = [pool.synthesize("nano", t, "Mỹ Duyên", {}) for t in texts]
     assert [len(a) for a in together] == [len(a) for a in apart]
     assert all(np.abs(a - b).max() < 1e-3 for a, b in zip(together, apart))
 
@@ -88,12 +90,12 @@ def test_engine_sends_its_batch_size_and_local_batches_run_in_one_call():
     engine = VieneuEngine(pool, SPEC, batch=3)
     audios = engine.synthesize_many(["một", "hai", "ba"], dialog=False)
     assert engine.batch == 3 and len(audios) == 3
-    assert backend.batch_calls == [("nano", ["một", "hai", "ba"], "Mỹ Duyên", 0.7)]
+    assert backend.batch_calls == [("nano", ["một", "hai", "ba"], "Mỹ Duyên", OPTIONS)]
 
 
 def test_dialogue_batches_use_the_dialogue_voice(tmp_path):
     backend = FakeBackend()
-    engine = VieneuEngine(ModelPool(backend), Voice("nano", "Mỹ Duyên", 0.7, True, "Anh Khôi"), batch=2)
+    engine = VieneuEngine(ModelPool(backend), Voice("nano", "Mỹ Duyên", (), True, "Anh Khôi"), batch=2)
     engine.synthesize_many(["nói", "lớn"], dialog=True)
     assert backend.batch_calls[0][2] == "Anh Khôi"
 

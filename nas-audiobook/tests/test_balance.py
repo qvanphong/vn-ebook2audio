@@ -12,7 +12,7 @@ from app.remote import WorkerError
 from app.tts import LaneError
 from conftest import FILLER, FakeEngine
 
-SPEC = Voice("nano", None, 0.8, True)
+SPEC = Voice("nano", None, (), True)
 
 
 def chapters(count=6):

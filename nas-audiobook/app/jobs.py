@@ -14,7 +14,7 @@ from typing import Protocol, Sequence
 
 import numpy as np
 
-from . import ingest, m4b
+from . import ingest, m4b, params
 from .config import Settings
 from .library import AudioEntry, Library, md5_file
 from .model import ACTIVE, Book, Chapter, Clip, Plan, State, Voice
@@ -27,7 +27,7 @@ log = logging.getLogger("jobs")
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
   id TEXT PRIMARY KEY, source TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', state TEXT NOT NULL,
-  model TEXT NOT NULL, voice TEXT, dialog_voice TEXT, temperature REAL NOT NULL, read_titles INTEGER NOT NULL,
+  model TEXT NOT NULL, voice TEXT, dialog_voice TEXT, params TEXT, read_titles INTEGER NOT NULL,
   chapters_done INTEGER NOT NULL DEFAULT 0, chapters_total INTEGER NOT NULL DEFAULT 0,
   output TEXT, error TEXT, cancel INTEGER NOT NULL DEFAULT 0, pause INTEGER NOT NULL DEFAULT 0, plan TEXT, chapters TEXT,
   workers TEXT, book_md5 TEXT, created REAL NOT NULL, updated REAL NOT NULL
@@ -45,7 +45,7 @@ class Job:
     model: str
     voice: str | None
     dialog_voice: str | None
-    temperature: float
+    params_json: str | None
     read_titles: bool
     chapters_done: int
     chapters_total: int
@@ -62,15 +62,17 @@ class Job:
 
     @property
     def spec(self) -> Voice:
-        return Voice(self.model, self.voice, self.temperature, self.read_titles, self.dialog_voice)
+        return Voice(self.model, self.voice, params.stored(self.model, json.loads(self.params_json or "{}")),
+                     self.read_titles, self.dialog_voice)
 
     @property
     def plan(self) -> Plan:
         return Plan.from_json(self.plan_json)
 
     def public(self) -> dict:
-        hidden = ("cancel", "pause", "plan_json", "chapters_json", "workers_json")
+        hidden = ("cancel", "pause", "plan_json", "chapters_json", "workers_json", "params_json")
         d = {k: (v.value if isinstance(v, State) else v) for k, v in self.__dict__.items() if k not in hidden}
+        d["params"] = dict(self.spec.params)
         d["chapters"] = json.loads(self.chapters_json) if self.chapters_json else []
         d["workers"] = json.loads(self.workers_json) if self.workers_json else []
         plan = self.plan
@@ -87,9 +89,14 @@ class JobStore:
         with self._lock:
             self._db.execute(SCHEMA)
             columns = {r["name"] for r in self._db.execute("PRAGMA table_info(jobs)")}
-            for column in ("dialog_voice", "plan", "chapters", "workers", "book_md5"):
+            for column in ("dialog_voice", "plan", "chapters", "workers", "book_md5", "params"):
                 if column not in columns:
                     self._db.execute(f"ALTER TABLE jobs ADD COLUMN {column} TEXT")
+            if "temperature" in columns:  # before models had settings of their own, only Turbo used it
+                for r in self._db.execute("SELECT id, model, temperature FROM jobs WHERE params IS NULL").fetchall():
+                    kept = {"temperature": r["temperature"]} if r["model"] == "turbo" else {}
+                    self._db.execute("UPDATE jobs SET params=? WHERE id=?", (json.dumps(kept), r["id"]))
+                self._db.execute("ALTER TABLE jobs DROP COLUMN temperature")
             if "pause" not in columns:
                 self._db.execute("ALTER TABLE jobs ADD COLUMN pause INTEGER NOT NULL DEFAULT 0")
             self._db.commit()
@@ -101,6 +108,7 @@ class JobStore:
         d["cancel"] = bool(d["cancel"])
         d["pause"] = bool(d["pause"])
         d["plan_json"] = d.pop("plan")
+        d["params_json"] = d.pop("params")
         d["chapters_json"] = d.pop("chapters")
         d["workers_json"] = d.pop("workers")
         return Job(**{f.name: d[f.name] for f in fields(Job)})  # old databases still have clip_index and clip_count
@@ -113,10 +121,10 @@ class JobStore:
         job_id = uuid.uuid4().hex[:12]
         with self._lock:
             self._db.execute(
-                "INSERT INTO jobs (id, source, title, state, model, voice, dialog_voice, temperature, read_titles, plan,"
+                "INSERT INTO jobs (id, source, title, state, model, voice, dialog_voice, params, read_titles, plan,"
                 " book_md5, created, updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (job_id, str(source), plan.title or title or source.stem, State.QUEUED, spec.model, spec.voice, spec.dialog_voice,
-                 spec.temperature, int(spec.read_titles), plan.to_json(), md5, now, now),
+                 json.dumps(dict(spec.params)), int(spec.read_titles), plan.to_json(), md5, now, now),
             )
             self._db.commit()
         return self.get(job_id)
@@ -540,7 +548,7 @@ class Conversion:
         self.library.add_audio(self.job.book_md5, AudioEntry(
             file=name, index=chapter.index, title=chapter.title, text_hash=chapter.text_hash, chars=chapter.chars,
             seconds=round(seconds, 3), bytes=(self.folder / name).stat().st_size, model=spec.model, voice=spec.voice,
-            dialog_voice=spec.dialog_voice, temperature=spec.temperature, read_titles=spec.read_titles,
+            dialog_voice=spec.dialog_voice, params=dict(spec.params), read_titles=spec.read_titles,
             voice_sig=self.sig, processor=self.plan.processor, created=time.time()))
         self.progress.chapter_done(lane.id, index, seconds, name)
 

@@ -91,7 +91,7 @@ Build without Calibre by setting `WITH_CALIBRE: "0"` in the compose file.
 
 ## Settings
 
-Environment variables on the `ebook2audio` service. Uploads can override model, voice, temperature and title reading per book.
+Environment variables on the `ebook2audio` service. Uploads can override model, voice, the model's voice settings and title reading per book.
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -101,7 +101,7 @@ Environment variables on the `ebook2audio` service. Uploads can override model, 
 | `TTS_VOICE` | model default | A preset voice name, for example `Mỹ Duyên`. List them at `/api/voices?model=nano` |
 | `TTS_DIALOG_VOICE` | none | A second voice for dialogue. Quoted speech of 3+ words (`“…”`, `«…»`, `"…"`) and lines starting with a dash are read by it. Unset means one voice for everything |
 | `TTS_PRECISION` | `fp32` | Turbo only. `int8` is 4x smaller and meant for CPUs with VNNI. It gave no speedup on the Apple CPU I tried |
-| `TTS_TEMPERATURE` | `0.8` | Higher is more expressive and less stable |
+| `TTS_TEMPERATURE` | `0.8` | Where the Turbo model's expressiveness starts on the page; higher is more expressive and less stable |
 | `TTS_DEVICE` | `auto` | `auto` (a GPU for the models that support one, the CPU for the rest), `cpu`, `cuda`, `directml`, `coreml` or `openvino`: the hardware the models run on (see `../docs/workers.md`, "Using a GPU"). Also `--device` on `python -m app` and `python -m app.worker` |
 | `TTS_THREADS` | all CPUs | ONNX threads. Leaving the runtime default was 2x slower in my Docker test |
 | `READ_TITLES` | `1` | Speak each chapter title before its text |
@@ -117,7 +117,7 @@ Environment variables on the `ebook2audio` service. Uploads can override model, 
 
 | Call | Purpose |
 |---|---|
-| `POST /api/jobs` (multipart `file`, optional `model`, `voice`, `dialog_voice`, `temperature`, `read_titles`) | Queue a book |
+| `POST /api/jobs` (multipart `file`, optional `model`, `voice`, `dialog_voice`, `voice_params`, `read_titles`) | Queue a book |
 | `GET /api/jobs`, `GET /api/jobs/{id}` | State: `queued`, `running`, `assembling`, `done`, `error`, `cancelled`, `paused`, with per-chapter progress and `workers`: for each machine its state (`waiting`, `preparing`, `rendering`, `idle`, `done`, `failed`), what it is doing, chapter and clip, chapters done and any error |
 | `POST /api/jobs/{id}/cancel`, `/pause`, `/retry`; `POST /api/jobs/clear` `{states}`; `DELETE /api/jobs/{id}` | Control. `retry` also resumes a paused job; `clear` removes done, error, cancelled or paused jobs from the list |
 | `GET /api/presets`, `POST /api/presets`, `DELETE /api/presets/{id}` | Voice presets: a saved engine, voices and settings |
@@ -132,7 +132,7 @@ Environment variables on the `ebook2audio` service. Uploads can override model, 
 | `POST /api/uploads` (multipart `file`) | Step 1. Returns an upload id and the book's MD5 |
 | `GET /api/uploads/{id}` | MD5, title, author, how much audio the library already holds for this book, and the processors that can read the file |
 | `POST /api/uploads/{id}/preview` (`{processor, params}`) | Step 2. Chapters with size, estimated seconds, start and end snippets, default selection, and the audio that already exists for each chapter (voice, model, file) |
-| `POST /api/uploads/{id}/convert` (`{processor, params, selection, overwrite, title, author, model, voice, dialog_voice, temperature, read_titles, workers}`; `workers` is a list of machine ids from `/api/workers`, or omitted for every machine that is on) | Queues a job for the selected chapters. Without `overwrite`, chapters that already have audio in this voice are skipped. The reply includes `already_had_audio` |
+| `POST /api/uploads/{id}/convert` (`{processor, params, selection, overwrite, title, author, model, voice, dialog_voice, voice_params, read_titles, workers}`; `workers` is a list of machine ids from `/api/workers`, or omitted for every machine that is on) | Queues a job for the selected chapters. Without `overwrite`, chapters that already have audio in this voice are skipped. The reply includes `already_had_audio` |
 | `GET /api/voice-sample?model=&voice=&text=` | A short MP3 of a voice, cached on disk |
 | `GET /api/voices?model=` | `{voices, ready, error}`. Preset and cloned voices (`cloned: true`). `ready: false` means the list came from the saved copy and the model is still loading. 503 only when nothing has been saved yet |
 | `GET /api/library` | Every book: title, author, MD5, audio count, total seconds, voices |
@@ -164,7 +164,7 @@ Sentence-level audio is not cached, because float audio for a long book would ta
 An English book is read by a separate English model, **Supertonic** (Supertone, 44.1 kHz, 10 voices: F1 to F5 and M1 to M5). The page picks it for you: upload an English book and the model switches to **English**, the voices become the English ones, and a note says so; a Vietnamese book switches back to your Vietnamese default. You can change the model by hand after that. Scripts (`POST /api/jobs`) and the inbox folder make the same choice from the book's language, and an explicit `model` always wins.
 
 - **Language** comes from the book's own language tag, or from its text when the tag is missing; a book with neither and no Vietnamese letters counts as English. Books in other languages keep the Vietnamese default for now. Supertonic itself covers about 30 languages, so adding more is a matter of mapping a language to it, which I have not done.
-- **Voices.** English and Vietnamese voices are different sets. A Vietnamese default voice (`TTS_VOICE`) never carries over to an English book, and picking a voice the model does not have is caught before the book starts. The narrator and dialogue voices work as before (quoted speech is read by the second voice). **Expressiveness** does not apply and is hidden.
+- **Voices.** English and Vietnamese voices are different sets. A Vietnamese default voice (`TTS_VOICE`) never carries over to an English book, and picking a voice the model does not have is caught before the book starts. The narrator and dialogue voices work as before (quoted speech is read by the second voice). The page shows the English model's own settings instead of the Vietnamese ones.
 - **No cloning.** The English model has a fixed set of voices. Cloned voices are not offered for it.
 - **Text.** The splitter keeps `Dr.`, `Mr.`, `e.g.`, `a.m.`, `U.S.` and similar inside their sentence. Numbers, dates and money are spoken by the model's own text normaliser.
 - **Where it runs.** On this server, or on any worker that has it, like the other models: a worker lists it in `/health`. A phone worker that runs only the Nano networks cannot do English and is greyed out in "Run on" for an English book.
@@ -239,7 +239,7 @@ In **Settings → Voice machines** each machine lists every model as `ready`, `o
 | `GET /models` | `{"models": {"nano": {"state", "ready", "loading", "downloaded", "offered", "supported", "device", "bytes", "size_mb", "error"}, ...}}`. `state` is `ready` (in memory), `loading`, `downloading` (with `bytes` arrived so far), `downloaded` (on disk, not loaded), `absent` or `error`. `offered` is false if the worker chose not to serve it, `supported` is false if it could never run it, and `device` says where it runs it |
 | `GET /health` | `{"ok": true, "protocol": 4, "name": "Laptop", "models": {"nano": {"ready": bool}, ...}, "capabilities": {"synthesize": bool, "infer": ["nano"], "clone": bool}}` |
 | `GET /voices?model=nano` | `{"voices": [{"id", "label", "cloned"}], "ready": bool, "error": null}`. 503 `{"detail": {"loading": true}}` while the model loads |
-| `POST /synthesize` with `{"model", "text", "voice", "temperature"}` | Text in. Mono 16-bit little-endian PCM, sample rate in `X-Sample-Rate` (24000 for nano, 48000 for turbo). 501 if `capabilities.synthesize` is false |
+| `POST /synthesize` with `{"model", "text", "voice", "params"}` | Text in. Mono 16-bit little-endian PCM, sample rate in `X-Sample-Rate` (24000 for nano, 48000 for turbo). 501 if `capabilities.synthesize` is false |
 | `POST /infer` with `{"model", "phonemes", "voice", "steps", "cfg", "speed", "seed"}` | One already-phonemised chunk in, one chunk of audio out (PCM as above, trimmed and faded). Nano only. The worker does no text work |
 | `POST /clones` (multipart `name`, `file`), `DELETE /clones/{name}` | Add or remove a cloned voice. 501 if `capabilities.clone` is false |
 

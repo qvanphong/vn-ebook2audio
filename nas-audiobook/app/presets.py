@@ -9,6 +9,8 @@ import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from . import params
+
 NAME_MAX = 60
 
 
@@ -27,7 +29,7 @@ class Preset:
     model: str
     voice: str | None
     dialog_voice: str | None
-    temperature: float
+    params: dict[str, float | int | None]
     read_titles: bool
 
 
@@ -41,7 +43,11 @@ class PresetStore:
             data = json.loads(self.path.read_text(encoding="utf8"))
         except (OSError, ValueError):
             return []
-        return [Preset(**p) for p in data]
+        return [self._preset(p) for p in data]
+
+    @staticmethod
+    def _preset(raw: dict) -> Preset:
+        return Preset(**{k: v for k, v in raw.items() if k not in ("temperature", "params")}, params=params.of_record(raw))
 
     def _write(self, presets: list[Preset]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -53,8 +59,8 @@ class PresetStore:
         with self._lock:
             return self._read()
 
-    def save(self, *, name: str, model: str, voice: str | None, dialog_voice: str | None, temperature: float,
-             read_titles: bool, id: str | None = None) -> Preset:
+    def save(self, *, name: str, model: str, voice: str | None, dialog_voice: str | None,
+             params: dict[str, float | int | None], read_titles: bool, id: str | None = None) -> Preset:
         """Update the preset with this id, or the one with this name (names do not depend on capitals), or create it."""
         name = " ".join(name.split())
         if not name or len(name) > NAME_MAX:
@@ -70,7 +76,7 @@ class PresetStore:
             if any(p.name.casefold() == name.casefold() and p is not target for p in presets):
                 raise PresetError(f"there is already a preset called {name!r}")
             saved = Preset(target.id if target else uuid.uuid4().hex[:8], name, model, voice or None, dialog_voice or None,
-                           temperature, read_titles)
+                           params, read_titles)
             presets = [saved if p is target else p for p in presets] if target else [*presets, saved]
             self._write(presets)
             return saved

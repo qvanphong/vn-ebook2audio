@@ -51,11 +51,13 @@ def test_worker_voices_wait_for_the_model_then_list_presets(tmp_path):
 def test_synthesize_returns_16_bit_pcm_at_the_models_rate(tmp_path):
     c, pool, backend = make_worker(tmp_path)
     pool.get("nano"); pool.get("turbo")
-    r = c.post("/synthesize", json={"model": "nano", "text": "Xin chào", "voice": "Mỹ Duyên", "temperature": 0.7}, headers=auth())
+    r = c.post("/synthesize", json={"model": "nano", "text": "Xin chào", "voice": "Mỹ Duyên",
+                                                "params": {"speed": 1.3, "steps": 10}}, headers=auth())
     assert r.status_code == 200 and r.headers["x-sample-rate"] == "24000"
     assert len(r.content) == 2 * int(24000 * 0.01 * len("Xin chào"))
     assert c.post("/synthesize", json={"model": "turbo", "text": "x"}, headers=auth()).headers["x-sample-rate"] == "48000"
-    assert backend.calls[0] == ("nano", "Xin chào", "Mỹ Duyên", 0.7)
+    assert backend.calls[0] == ("nano", "Xin chào", "Mỹ Duyên",
+                                 {"speed": 1.3, "steps": 10, "sway": 0.0, "max_chars": 140})
 
 
 def test_synthesize_validates_model_and_length(tmp_path):
@@ -100,7 +102,7 @@ def test_remote_backend_lists_voices_and_returns_audio_matching_the_worker(tmp_p
     pool, _ = remote_pool(tmp_path, c)
     pool.get("nano")
     assert [v["id"] for v in pool.voices("nano").voices] == ["Mỹ Duyên", "Anh Khôi"]
-    audio = pool.synthesize("nano", "Xin chào các bạn", "Mỹ Duyên", 0.8)
+    audio = pool.synthesize("nano", "Xin chào các bạn", "Mỹ Duyên", {})
     expected = FakeHandle(FakeBackend(), "nano").infer("Xin chào các bạn")
     assert audio.dtype == np.float32 and len(audio) == len(expected) and np.abs(audio - expected).max() < 1e-3
     assert fake.calls[-1][2] == "Mỹ Duyên"
@@ -165,7 +167,7 @@ def test_voices_still_show_from_the_saved_list_when_the_worker_is_off(tmp_path):
 def test_a_whole_book_converts_through_the_worker(settings, store, make_epub, tmp_path):
     c, _, fake = make_worker(tmp_path)
     pool, _ = remote_pool(tmp_path, c)
-    job = store.create(make_epub(), Voice("nano", "Mỹ Duyên", 0.8, True))
+    job = store.create(make_epub(), Voice("nano", "Mỹ Duyên", (), True))
     Runner(settings, store, pool.factory()).run_one(store.claim_next())
     done = store.get(job.id)
     assert done.state is State.DONE, done.error

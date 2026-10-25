@@ -109,7 +109,7 @@ def test_voice_engine_clamps_the_batch_size():
         def get(self, model):
             return None
 
-    spec = Voice("nano", None, 0.8, True)
+    spec = Voice("nano", None, (), True)
     assert VieneuEngine(Pool(), spec, batch=0).batch == 1
     assert VieneuEngine(Pool(), spec, batch=1000).batch == MAX_BATCH
     assert VieneuEngine(Pool(), spec).batch == 1

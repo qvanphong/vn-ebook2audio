@@ -5,6 +5,7 @@ import threading
 import time
 from pathlib import Path
 
+from . import params
 from .config import Settings
 from .books import load_source
 from .ingest import SUPPORTED
@@ -17,7 +18,8 @@ log = logging.getLogger("watcher")
 
 def default_voice(settings: Settings, language: str | None = None) -> Voice:
     d = settings.defaults_for(language)
-    return Voice(d["model"], d["voice"], settings.temperature, settings.read_titles, d["dialog_voice"])
+    return Voice(d["model"], d["voice"], params.resolve(d["model"], None, settings.param_defaults), settings.read_titles,
+                 d["dialog_voice"])
 
 
 def book_language(path: Path) -> str | None:

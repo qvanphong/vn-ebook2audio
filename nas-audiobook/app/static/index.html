@@ -26,6 +26,8 @@
   button.danger { color:var(--err); }
   button.small { padding:4px 9px; font-size:13px; }
   .row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; } .row > div { flex:1 1 180px; }
+  .params { display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:10px 12px; margin-top:12px; }
+  .params .muted { font-size:12px; margin-top:2px; }
   .inline { display:flex; gap:8px; align-items:center; } .inline select { flex:1; }
   .muted { color:var(--muted); font-size:13px; } .err { color:var(--err); font-size:13px; } .ok { color:var(--ok); font-size:13px; }
   .note { background:var(--soft); border-radius:8px; padding:8px 10px; font-size:13px; margin-top:10px; }
@@ -200,8 +202,8 @@
     <div class="row">
       <div><label for="model">Model</label>
         <select id="model"><option value="english">English (Supertonic: clear, fast)</option><option value="nano">Vietnamese · Nano (fast)</option><option value="turbo">Vietnamese · Turbo (best quality, slower)</option></select></div>
-      <div id="tempBox"><label for="temperature">Expressiveness</label><input id="temperature" type="number" step="0.05" min="0.1" max="1.5"></div>
     </div>
+    <div id="paramsBox" class="params"></div>
     <div class="row">
       <div><label for="voice">Narrator</label><div class="inline"><select id="voice"></select><button class="small" id="playNarrator" type="button" aria-label="Hear the narrator voice">▶ Hear</button></div></div>
       <div><label for="dialog_voice">Dialogue (quoted speech)</label><div class="inline"><select id="dialog_voice"></select><button class="small" id="playDialog" type="button" aria-label="Hear the dialogue voice">▶ Hear</button></div></div>
@@ -362,7 +364,7 @@ WORKER_NAME="Laptop" WORKER_TOKEN=choose-a-secret python -m app.worker</pre>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const state = { defaults: null, upload: null, info: null, preview: null, selected: new Set(), previewSeq: 0, voices: [], voiceTimer: null, previewTimer: null, openBooks: new Set() };
+const state = { defaults: null, paramSpecs: {}, upload: null, info: null, preview: null, selected: new Set(), previewSeq: 0, voices: [], voiceTimer: null, previewTimer: null, openBooks: new Set() };
 
 function fmtDuration(sec) {
   if (sec < 90) return `${sec} s`;
@@ -438,7 +440,32 @@ function chooseModelForLanguage(language) {
                           : "";
   note.classList.toggle("hidden", !isEn);
 }
-function syncModelFields() { $("tempBox").classList.toggle("hidden", $("model").value === "english"); }
+/* the settings the chosen model has, drawn from /api/params; an empty box means the model's own value */
+function renderParams(values = {}) {
+  const specs = state.paramSpecs[$("model").value] || [];
+  $("paramsBox").innerHTML = specs.map((p) => {
+    const v = values[p.key] === undefined ? p.default : values[p.key];
+    return `<div><label for="p_${p.key}">${esc(p.label)}</label>
+      <input id="p_${p.key}" data-param="${p.key}" type="number" step="${p.step}" min="${p.min}" max="${p.max}"
+        placeholder="model default" value="${v ?? ""}" title="${esc(p.help)}">
+      <div class="muted">${esc(p.help)}</div></div>`;
+  }).join("");
+}
+/* every setting of the chosen model with its value, the default where the box is empty (null: the model decides) */
+function effectiveParams() {
+  const out = {};
+  for (const p of state.paramSpecs[$("model").value] || []) {
+    const raw = $("p_" + p.key)?.value.trim();
+    out[p.key] = raw ? Number(raw) : p.default;
+  }
+  return out;
+}
+const sameParams = (a, b) => Object.keys({ ...a, ...b }).every((k) => (a[k] ?? null) === (b[k] ?? null));
+function paramSummary(model, values) {
+  const changed = (state.paramSpecs[model] || []).filter((p) => (values[p.key] ?? null) !== p.default);
+  return changed.length ? changed.map((p) => `${p.label.toLowerCase()} ${values[p.key] ?? "model default"}`).join(", ") : "default settings";
+}
+function syncModelFields() { renderParams(); }
 $("inLibrary").addEventListener("click", (e) => { const a = e.target.closest("[data-open-book]"); if (a) state.openBooks.add(a.dataset.openBook); });
 
 function show(on) {
@@ -493,10 +520,10 @@ async function runPreview() {
 /* what the current voice settings would produce, to compare with audio that already exists */
 function voiceSpec() {
   return { model: $("model").value, voice: $("voice").value || null, dialog_voice: $("dialog_voice").value || null,
-           temperature: Number($("temperature").value) || state.defaults.temperature, read_titles: $("read_titles").checked };
+           params: effectiveParams(), read_titles: $("read_titles").checked };
 }
 const sameVoice = (a, v) => a.model === v.model && (a.voice || null) === v.voice && (a.dialog_voice || null) === v.dialog_voice
-  && Math.abs(a.temperature - v.temperature) < 1e-9 && a.read_titles === v.read_titles;
+  && sameParams(a.params, v.params) && a.read_titles === v.read_titles;
 function audioStatus(c, v) {
   const mine = c.audio.filter((a) => sameVoice(a, v));
   return { mine, others: c.audio.filter((a) => !sameVoice(a, v)) };
@@ -553,7 +580,7 @@ function showAudioInfo(i) {
       <dt>Engine</dt><dd>${esc(catalogLabel(a.model))}</dd>
       <dt>Narrator</dt><dd>${esc(a.voice || "Default")}</dd>
       <dt>Dialogue</dt><dd>${esc(a.dialog_voice || "Same as narrator")}</dd>
-      <dt>Expressiveness</dt><dd>${a.model === "english" ? "not used by this engine" : a.temperature}</dd>
+      ${(state.paramSpecs[a.model] || []).map((p) => `<dt>${esc(p.label)}</dt><dd>${a.params[p.key] ?? "model default"}</dd>`).join("")}
       <dt>Titles read aloud</dt><dd>${a.read_titles ? "yes" : "no"}</dd>
       <dt>Splitting</dt><dd>${esc(a.processor)}</dd>
       <dt>Made</dt><dd>${esc(new Date(a.created * 1000).toLocaleString())}</dd>
@@ -625,7 +652,8 @@ async function loadVoices() {
   } catch (e) { fill([]); say("Could not load voices: " + e.message, true); state.voiceTimer = setTimeout(loadVoices, 15000); }
 }
 $("model").addEventListener("change", () => { $("voice").value = ""; $("dialog_voice").value = ""; syncModelFields(); loadVoices(); refreshBadges(); });
-["voice", "dialog_voice", "temperature", "read_titles"].forEach((id) => $(id).addEventListener("change", refreshBadges));
+["voice", "dialog_voice", "read_titles"].forEach((id) => $(id).addEventListener("change", refreshBadges));
+$("paramsBox").addEventListener("change", refreshBadges);
 function refreshBadges() { if (state.preview) renderChapters(); renderRunOn(); updateConfirm(); }
 
 function renderGallery() {
@@ -654,7 +682,7 @@ $("playDialog").onclick = (e) => playSample(sel.dialog() || sel.narrator(), e.cu
 const sampleCache = new Map();
 async function playSample(voice, button) {
   const player = $("player"), label = button.textContent;
-  const params = new URLSearchParams({ model: $("model").value, temperature: $("temperature").value || "0.8" });
+  const params = new URLSearchParams({ model: $("model").value, voice_params: JSON.stringify(effectiveParams()) });
   if (voice) params.set("voice", voice);
   if ($("sampleText").value.trim()) params.set("text", $("sampleText").value.trim());
   const url = `/api/voice-sample?${params}`;
@@ -676,14 +704,13 @@ async function playSample(voice, button) {
 /* ---------- presets: a saved engine, voices and settings ---------- */
 state.presets = [];
 const presetFields = () => ({ model: $("model").value, voice: $("voice").value || null, dialog_voice: $("dialog_voice").value || null,
-  temperature: Number($("temperature").value) || state.defaults.temperature, read_titles: $("read_titles").checked });
+  params: effectiveParams(), read_titles: $("read_titles").checked });
 /* put a set of settings on the form; a new engine means its voice list is fetched and the voices set when it arrives */
 function applySettings(s) {
   const changed = $("model").value !== s.model;
   $("model").value = s.model;
-  $("temperature").value = s.temperature ?? state.defaults.temperature;
   $("read_titles").checked = !!s.read_titles;
-  syncModelFields();
+  renderParams(s.params);
   if (changed) {
     state.wantVoices = [s.voice || "", s.dialog_voice || ""];
     $("voice").value = ""; $("dialog_voice").value = "";
@@ -773,7 +800,7 @@ async function submitConvert(selection, overwrite) {
     processor: $("processor").value, params: currentParams(), selection, overwrite,
     title: $("btitle").value, author: $("bauthor").value, model: $("model").value,
     voice: $("voice").value || null, dialog_voice: $("dialog_voice").value || null,
-    temperature: Number($("temperature").value) || null, read_titles: $("read_titles").checked,
+    voice_params: effectiveParams(), read_titles: $("read_titles").checked,
     workers: machineChoice(),
   };
   const r = await fetch(`/api/uploads/${state.upload}/convert`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -1011,7 +1038,7 @@ async function loadDetail(el, md5, updated) {
   detail.dataset.updated = String(updated);
   detail.innerHTML = book.groups.map((g, gi) => `<div class="group" data-gi="${gi}">
       <div class="gh"><b>${esc(g.label)}</b>
-        <span class="muted">${g.files.length} chapter${g.files.length === 1 ? "" : "s"} · ${fmtDuration(g.seconds)} · ${fmtMB(g.bytes)} · expressiveness ${g.temperature}</span></div>
+        <span class="muted">${g.files.length} chapter${g.files.length === 1 ? "" : "s"} · ${fmtDuration(g.seconds)} · ${fmtMB(g.bytes)} · ${esc(paramSummary(g.model, g.params))}</span></div>
       <audio controls preload="none"></audio>
       <div class="chs">${trackRows(g.files.map((f) => ({ url: audioUrl(md5, f.file), title: `${f.index + 1}. ${f.title}`, meta: `${fmtClock(f.seconds)} · ${fmtMB(f.bytes)}`, file: f.file })), true)}</div>
       <div style="margin-top:8px"><a href="/api/library/${md5}/book.m4b?group=${g.voice_sig}" download>Download as one chaptered M4B</a>
@@ -1384,7 +1411,8 @@ $("cf").addEventListener("submit", async (e) => {
 let lastDone = new Set();
 (async function init() {
   state.defaults = await (await fetch("/api/defaults")).json();
-  $("model").value = state.defaults.model; $("temperature").value = state.defaults.temperature; syncModelFields();
+  state.paramSpecs = await (await fetch("/api/params")).json();
+  $("model").value = state.defaults.model; syncModelFields();
   $("read_titles").checked = state.defaults.read_titles;
   $("file").accept = state.defaults.formats.join(",");
   route(); loadEngine(); refreshJobs(); loadPresets();

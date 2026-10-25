@@ -17,7 +17,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Response, UploadFile
 from pydantic import BaseModel
 
-from . import accel, catalog, tts
+from . import accel, catalog, params, tts
 from .config import Settings
 
 PROTOCOL = 4  # batching is a capability (health: capabilities.batch), not a new protocol, so older servers still work
@@ -32,6 +32,7 @@ class Inference(BaseModel):
     voice: str | None = None
     steps: int | None = None
     cfg: float | None = None
+    sway: float = 0.0
     speed: float = 1.0
     seed: int | None = None
 
@@ -40,14 +41,27 @@ class Synthesis(BaseModel):
     model: str
     text: str
     voice: str | None = None
-    temperature: float = 0.8
+    params: dict[str, float | int | None] = {}  # any setting the model has (app/params.py)
+    temperature: float | None = None  # what servers before `capabilities.params` send
 
 
 class SynthesisBatch(BaseModel):
     model: str
     texts: list[str]
     voice: str | None = None
-    temperature: float = 0.8
+    params: dict[str, float | int | None] = {}
+    temperature: float | None = None
+
+
+def options_for(request: Synthesis | SynthesisBatch) -> dict[str, float | int]:
+    """The engine settings in a request, checked against what the model has. A bad one is a 400, not a guess."""
+    given = dict(request.params)
+    if request.temperature is not None and any(p.key == "temperature" for p in params.PARAMS.get(request.model, ())):
+        given.setdefault("temperature", request.temperature)
+    try:
+        return params.engine_kwargs(params.resolve(request.model, given))
+    except params.ParamError as exc:
+        raise HTTPException(400, str(exc))
 
 
 def create_worker_app(pool: tts.ModelPool, default_model: str, token: str | None = None,
@@ -84,7 +98,8 @@ def create_worker_app(pool: tts.ModelPool, default_model: str, token: str | None
     @app.get("/health")
     def health():
         return {"ok": True, "protocol": PROTOCOL, "name": name, "device": accel.status(), "models": {m: {"ready": pool.ready(m)} for m in tts.MODEL_MODES},
-                "capabilities": {"synthesize": text_ok, "infer": list(INFER_MODELS), "clone": text_ok, "batch": text_ok}}
+                "capabilities": {"synthesize": text_ok, "infer": list(INFER_MODELS), "clone": text_ok, "batch": text_ok,
+                                 "params": text_ok}}
 
     @app.get("/models")
     def models():
@@ -110,9 +125,10 @@ def create_worker_app(pool: tts.ModelPool, default_model: str, token: str | None
         if len(request.text) > MAX_TEXT_CHARS:
             raise HTTPException(400, f"text is longer than {MAX_TEXT_CHARS} characters")
         serve(request.model)
+        options = options_for(request)
         try:
             pool.ensure(request.model)
-            audio = pool.synthesize(request.model, request.text, request.voice, request.temperature)
+            audio = pool.synthesize(request.model, request.text, request.voice, options)
         except ValueError as exc:
             raise HTTPException(400, str(exc))
         except tts.ModelLoading as exc:
@@ -132,9 +148,10 @@ def create_worker_app(pool: tts.ModelPool, default_model: str, token: str | None
         if any(len(text) > MAX_TEXT_CHARS for text in request.texts):
             raise HTTPException(400, f"text is longer than {MAX_TEXT_CHARS} characters")
         serve(request.model)
+        options = options_for(request)
         try:
             pool.ensure(request.model)
-            audios = pool.synthesize_many(request.model, request.texts, request.voice, request.temperature)
+            audios = pool.synthesize_many(request.model, request.texts, request.voice, options)
         except ValueError as exc:
             raise HTTPException(400, str(exc))
         except tts.ModelLoading as exc:
@@ -153,7 +170,8 @@ def create_worker_app(pool: tts.ModelPool, default_model: str, token: str | None
         try:
             pool.ensure(request.model)
             audio = pool.infer_phonemes(request.model, request.phonemes, request.voice, steps=request.steps,
-                                        cfg=request.cfg, speed=request.speed, seed=request.seed)
+                                        cfg=request.cfg, sway=request.sway, speed=request.speed,
+                                        seed=request.seed)
         except ValueError as exc:
             raise HTTPException(400, str(exc))
         except tts.Unsupported as exc:

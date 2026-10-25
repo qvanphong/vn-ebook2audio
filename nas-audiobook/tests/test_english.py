@@ -33,7 +33,7 @@ class FakeSupertonic:
     """Stands in for supertonic.TTS: records calls, answers with a second of silence per call."""
 
     def __init__(self, **kw):
-        self.kw, self.calls, self.voice_style_names = kw, [], list(VOICES)
+        self.kw, self.calls, self.options, self.voice_style_names = kw, [], [], list(VOICES)
 
     def get_voice_style(self, name):
         return f"style:{name}"
@@ -41,6 +41,7 @@ class FakeSupertonic:
     def synthesize(self, text, voice_style, total_steps=8, speed=1.05, max_chunk_length=None, silence_duration=0.3,
                    lang=None, verbose=False):
         self.calls.append((text, voice_style, total_steps, lang))
+        self.options.append({"speed": speed, "max_chunk_length": max_chunk_length, "silence_duration": silence_duration})
         return np.zeros((1, 44100), dtype=np.float32), np.array([1.0])
 
 
@@ -66,11 +67,12 @@ def test_the_local_backend_loads_it_with_the_chosen_thread_count_and_names_ten_v
     assert handle.voice_ids() == VOICES and handle.can_clone is False
 
 
-def test_it_speaks_english_with_the_chosen_voice_and_ignores_the_vietnamese_expressiveness_setting(fake_module):
+def test_it_speaks_english_with_the_chosen_voice_and_passes_its_own_settings_to_the_engine(fake_module):
     handle = LocalBackend(1, "fp32").load("english")
-    audio = handle.infer("Hello there.", voice="M2", temperature=1.4)
+    audio = handle.infer("Hello there.", voice="M2", total_steps=12, speed=0.9, silence_duration=0.5)
     assert audio.dtype == np.float32 and audio.shape == (44100,)
-    assert handle._tts.calls == [("Hello there.", "style:M2", 8, "en")]
+    assert handle._tts.calls == [("Hello there.", "style:M2", 12, "en")]
+    assert handle._tts.options == [{"speed": 0.9, "max_chunk_length": None, "silence_duration": 0.5}]
     handle.infer("And without a voice.")
     assert handle._tts.calls[-1][1] == "style:F1"
 
@@ -116,9 +118,9 @@ def test_cloned_voices_never_show_up_in_the_english_list_even_before_it_loads(tm
 
 def test_a_vietnamese_voice_is_caught_before_a_book_starts_on_the_english_model():
     pool = ModelPool(SupertonicBackend())
-    pool.prepare(Voice("english", "M3", 0.8, True, "F2"))
+    pool.prepare(Voice("english", "M3", (), True, "F2"))
     with pytest.raises(VoiceMissing, match="'Mỹ Duyên'"):
-        pool.prepare(Voice("english", "Mỹ Duyên", 0.8, True))
+        pool.prepare(Voice("english", "Mỹ Duyên", (), True))
 
 
 def test_a_phone_that_only_runs_nano_refuses_the_english_model(tmp_path):
@@ -225,7 +227,7 @@ def test_a_whole_english_book_is_made_with_the_english_voice_and_saved_in_its_ow
     from app.library import Library, md5_file
 
     book = make_epub("en7.epub", ENGLISH, language="en")
-    store.create(book, Voice("english", "M2", 0.8, True))
+    store.create(book, Voice("english", "M2", (), True))
     Runner(settings, store, lambda _v: FakeEngine()).run_one(store.claim_next())
     (entry,) = Library(settings.library).entries(md5_file(book))
     assert entry.model == "english" and entry.voice == "M2" and entry.voice_label() == "English · M2"

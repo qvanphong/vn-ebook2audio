@@ -12,6 +12,7 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from . import params
 from .model import Cover
 
 MD5 = re.compile(r"^[0-9a-f]{32}$")
@@ -42,7 +43,7 @@ class AudioEntry:
     model: str
     voice: str | None
     dialog_voice: str | None
-    temperature: float
+    params: dict[str, float | int | None]
     read_titles: bool
     voice_sig: str
     processor: str
@@ -51,6 +52,10 @@ class AudioEntry:
     def voice_label(self) -> str:
         label = f"{self.model.capitalize()} · {self.voice or 'default voice'}"
         return f"{label} / {self.dialog_voice}" if self.dialog_voice else label
+
+
+def entry_from(raw: dict) -> AudioEntry:
+    return AudioEntry(**{k: v for k, v in raw.items() if k not in ("temperature", "params")}, params=params.of_record(raw))
 
 
 class Library:
@@ -135,7 +140,7 @@ class Library:
         if data is None:
             return []
         folder = self.dir(md5)
-        found = [AudioEntry(**a) for a in data.get("audio", []) if (folder / a["file"]).is_file()]
+        found = [entry_from(a) for a in data.get("audio", []) if (folder / a["file"]).is_file()]
         return sorted(found, key=lambda a: (a.voice_sig, a.index))
 
     def find(self, md5: str, text_hash: str, voice_sig: str) -> AudioEntry | None:

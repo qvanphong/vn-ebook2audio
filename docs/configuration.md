@@ -14,7 +14,7 @@ are saved on disk and win over the environment afterwards.
 | `TTS_ENGLISH_VOICE` | model default (`F1`) | Default narrator for English books |
 | `TTS_VOICE` | model default | Default narrator for books started without an explicit voice, a preset voice name such as `Mỹ Duyên` |
 | `TTS_DIALOG_VOICE` | none | Default dialogue voice. Unset means one voice for everything |
-| `TTS_TEMPERATURE` | `0.8` | Expressiveness of the Vietnamese voices; higher is more expressive and less steady |
+| `TTS_TEMPERATURE` | `0.8` | What the Turbo model's expressiveness starts at on the page; higher is more expressive and less steady. Every other setting starts at the model's own value |
 | `TTS_PRECISION` | `fp32` | Turbo only: `fp32` or `int8` |
 | `TTS_THREADS` | all CPUs visible | ONNX threads per model. The runtime's own default was twice as slow in one test |
 | `TTS_DEVICE` | `auto` | Hardware for the models: `auto` (a GPU for the models that support one, the CPU for the rest), `cpu`, `cuda`, `directml`, `coreml`, `openvino`. Also the flag `python -m app --device cuda`. A device that is not available stops the start with a message. See [Using a GPU](workers.md#using-a-gpu) |
@@ -27,7 +27,7 @@ are saved on disk and win over the environment afterwards.
 | `HF_HOME` | Hugging Face default (`/data/cache/hf` in Docker) | Where models are downloaded |
 | `SUPERTONIC_CACHE_DIR` | `$HF_HOME/supertonic3` when `HF_HOME` is set, else the library default (`~/.cache/supertonic3`) | Where the English model is kept |
 
-Uploads can override model, voice, dialogue voice, expressiveness and title reading for one book.
+Uploads can override model, voice, dialogue voice, the model's voice settings and title reading for one book.
 
 ## Worker environment variables
 

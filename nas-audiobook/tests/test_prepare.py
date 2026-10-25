@@ -27,20 +27,20 @@ def test_preparing_loads_the_model_and_accepts_voices_it_has():
     backend = FakeBackend()
     pool = ModelPool(backend)
     messages = []
-    pool.prepare(Voice("nano", "Mỹ Duyên", 0.8, True, "Anh Khôi"), messages.append)
+    pool.prepare(Voice("nano", "Mỹ Duyên", (), True, "Anh Khôi"), messages.append)
     assert backend.loads == ["nano"] and pool.ready("nano")
     assert any("loading the Vietnamese · Nano model" in m for m in messages) and "checking voices" in messages
 
 
 def test_the_default_voice_needs_no_voice_check():
     backend = FakeBackend()
-    ModelPool(backend).prepare(Voice("nano", None, 0.8, True))
+    ModelPool(backend).prepare(Voice("nano", None, (), True))
     assert backend.loads == ["nano"]
 
 
 def test_a_preset_voice_the_machine_does_not_have_is_reported_by_name():
     with pytest.raises(VoiceMissing, match="'Giọng lạ'"):
-        ModelPool(FakeBackend()).prepare(Voice("nano", "Giọng lạ", 0.8, True))
+        ModelPool(FakeBackend()).prepare(Voice("nano", "Giọng lạ", (), True))
 
 
 def test_a_cloned_voice_the_machine_never_saw_is_sent_to_it(clones):
@@ -49,7 +49,7 @@ def test_a_cloned_voice_the_machine_never_saw_is_sent_to_it(clones):
     pool.get("nano")
     backend.cloned.clear()  # the machine lost it, or never had it
     messages = []
-    pool.prepare(Voice("nano", "Giọng tôi", 0.8, True), messages.append)
+    pool.prepare(Voice("nano", "Giọng tôi", (), True), messages.append)
     assert backend.cloned == ["Giọng tôi"] and any("sending the cloned voice" in m for m in messages)
 
 
@@ -59,7 +59,7 @@ def test_a_machine_that_cannot_clone_says_so_instead_of_getting_the_voice(clones
     pool.get("nano").can_clone = False
     backend.cloned.clear()
     with pytest.raises(VoiceMissing, match="Giọng tôi"):
-        pool.prepare(Voice("nano", "Giọng tôi", 0.8, True))
+        pool.prepare(Voice("nano", "Giọng tôi", (), True))
 
 
 def remote_node(tmp_path, worker_client, clones, name="Pixel"):
@@ -72,7 +72,7 @@ def test_a_worker_that_has_not_loaded_the_model_is_told_to_and_the_voice_is_uplo
     worker, wpool, wbackend = make_worker(tmp_path)
     assert not wpool.ready("nano")
     node = remote_node(tmp_path, worker, clones)
-    engine = node.engine(Voice("nano", "Giọng tôi", 0.8, True))
+    engine = node.engine(Voice("nano", "Giọng tôi", (), True))
     assert wpool.ready("nano") and wbackend.loads == ["nano"]
     assert wbackend.cloned == ["Giọng tôi"] and engine.sample_rate == 24000
     assert len(engine.synthesize("Xin chào các bạn")) > 0
@@ -85,7 +85,7 @@ def test_a_worker_that_already_has_everything_is_not_sent_the_voice_again(tmp_pa
         assert worker.post("/clones", data={"name": "Giọng tôi"}, files={"file": ("a.wav", f)},
                            headers={"Authorization": f"Bearer {TOKEN}"}).status_code == 201
     assert wbackend.cloned == ["Giọng tôi"]
-    remote_node(tmp_path, worker, clones).engine(Voice("nano", "Giọng tôi", 0.8, True))
+    remote_node(tmp_path, worker, clones).engine(Voice("nano", "Giọng tôi", (), True))
     assert wbackend.cloned == ["Giọng tôi"]
 
 
@@ -94,7 +94,7 @@ def test_a_phone_that_only_runs_nano_refuses_turbo_with_a_clear_reason(tmp_path,
                        base_url="http://worker")
     node = remote_node(tmp_path, phone, clones)
     with pytest.raises(WorkerError, match="cannot run the turbo model"):
-        node.engine(Voice("turbo", None, 0.8, True))
+        node.engine(Voice("turbo", None, (), True))
 
 
 def test_a_phone_cannot_be_given_a_cloned_voice(tmp_path, clones):
@@ -105,7 +105,7 @@ def test_a_phone_cannot_be_given_a_cloned_voice(tmp_path, clones):
     backend = RemoteBackend("http://worker", TOKEN, client=phone, sleep=lambda _s: None, frontend=StubFrontend())
     node = Node("w1", "Phone", ModelPool(backend, clones, tmp_path / "pv.json"), WorkerConfig("w1", "Phone", "http://worker"), True)
     with pytest.raises(VoiceMissing, match="Giọng tôi"):
-        node.engine(Voice("nano", "Giọng tôi", 0.8, True))
+        node.engine(Voice("nano", "Giọng tôi", (), True))
 
 
 class Slow(FakeBackend):
@@ -134,7 +134,7 @@ def test_a_book_is_shared_between_this_server_and_a_worker_end_to_end(settings, 
 
     ctl = EngineController(EngineConfigStore(settings.engine_config), EngineConfig(True, (WorkerConfig("w1", "Pixel", "http://worker", TOKEN),)), make)
     book = make_epub("shared.epub", [(f"Chương {k}", [f"Mốc số {k}.", FILLER, FILLER]) for k in range(1, 7)])
-    job = store.create(book, Voice("nano", "Giọng tôi", 0.8, True))
+    job = store.create(book, Voice("nano", "Giọng tôi", (), True))
     Runner(settings, store, ctl).run_one(store.claim_next())
     done = store.get(job.id)
     assert done.state is State.DONE, done.error
