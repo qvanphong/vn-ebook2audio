@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 import tempfile
 from dataclasses import asdict
@@ -10,7 +11,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
-from . import books, catalog, ingest, m4b, tts
+from . import books, catalog, ingest, m4b, params, tts
 from .books.epub_cover import sniff as sniff_image
 from .calibre import CalibreClient, CalibreConfig, CalibreError, CalibreStore, normalize_url as calibre_url
 from .books import MIN_CHAPTER_CHARS, ParamError, default_selection
@@ -83,7 +84,7 @@ class PresetIn(BaseModel):
     model: str
     voice: str | None = None
     dialog_voice: str | None = None
-    temperature: float = Field(0.8, ge=0.05, le=2.0)
+    params: dict[str, float | int | None] = {}
     read_titles: bool = True
 
 
@@ -100,7 +101,7 @@ class ConvertRequest(PreviewRequest):
     model: str | None = None
     voice: str | None = None
     dialog_voice: str | None = None
-    temperature: float | None = None
+    voice_params: dict[str, float | int | None] | None = None  # `params` is the chapter splitting's
     read_titles: bool | None = None
     workers: list[str] | None = None
 
@@ -158,16 +159,34 @@ def create_app(settings: Settings, store: JobStore, pool, uploads: UploadStore |
         except LibraryError as exc:
             raise HTTPException(404, str(exc))
 
-    def spec_from(req_model, req_voice, req_dialog, req_temp, req_titles, language=None) -> Voice:
+    def json_object(raw: str | None) -> dict | None:
+        if not raw:
+            return None
+        try:
+            value = json.loads(raw)
+        except ValueError:
+            value = None
+        if not isinstance(value, dict):
+            raise HTTPException(422, "the voice settings must be a JSON object, for example {\"speed\": 1.1}")
+        return value
+
+    def resolve_params(model: str, given) -> params.Values:
+        """The settings the model has, from what the caller sent over the starting values. A name the model does not
+        have is an error."""
+        try:
+            return params.resolve(model, given, settings.param_defaults)
+        except params.ParamError as exc:
+            raise HTTPException(422, str(exc))
+
+    def spec_from(req_model, req_voice, req_dialog, req_params, req_titles, language=None) -> Voice:
         d = settings.defaults_for(language)
         own = (req_model or d["model"]) == d["model"]  # default voices belong to the default model only
-        spec = Voice(req_model or d["model"], req_voice or (d["voice"] if own else None),
-                     settings.temperature if req_temp is None else req_temp,
+        model = req_model or d["model"]
+        if model not in tts.MODEL_MODES:
+            raise HTTPException(400, f"unknown model {model!r}")
+        return Voice(model, req_voice or (d["voice"] if own else None), resolve_params(model, req_params),
                      settings.read_titles if req_titles is None else req_titles,
                      req_dialog or (d["dialog_voice"] if own else None))
-        if spec.model not in tts.MODEL_MODES:
-            raise HTTPException(400, f"unknown model {spec.model!r}")
-        return spec
 
     def loading(exc: tts.ModelLoading) -> HTTPException:
         return HTTPException(503, {"loading": exc.error is None, "message": str(exc)})
@@ -185,7 +204,7 @@ def create_app(settings: Settings, store: JobStore, pool, uploads: UploadStore |
         english = settings.defaults_for("en")
         return {"model": settings.model, "voice": settings.voice, "dialog_voice": settings.dialog_voice,
                 "english": english if english["model"] != settings.model else None,
-                "temperature": settings.temperature, "read_titles": settings.read_titles,
+                "read_titles": settings.read_titles,
                 "formats": sorted(ingest.SUPPORTED), "min_chapter_chars": MIN_CHAPTER_CHARS,
                 "chars_per_second": CHARS_PER_SECOND}
 
@@ -307,7 +326,8 @@ def create_app(settings: Settings, store: JobStore, pool, uploads: UploadStore |
             raise HTTPException(422, f"unknown model {preset.model!r}")
         try:
             return asdict(presets.save(id=preset.id, name=preset.name, model=preset.model, voice=preset.voice,
-                                       dialog_voice=preset.dialog_voice, temperature=preset.temperature,
+                                       dialog_voice=preset.dialog_voice,
+                                       params=dict(resolve_params(preset.model, preset.params)),
                                        read_titles=preset.read_titles))
         except PresetMissing as exc:
             raise HTTPException(404, str(exc))
@@ -334,6 +354,11 @@ def create_app(settings: Settings, store: JobStore, pool, uploads: UploadStore |
         except ConfigError as exc:
             raise HTTPException(404, str(exc))
 
+    @app.get("/api/params")
+    def model_params():
+        """Per model, the settings it has, with their ranges and the value each starts at."""
+        return {m: [p.view(dict(resolve_params(m, None))[p.key]) for p in params.PARAMS[m]] for m in params.PARAMS}
+
     @app.get("/api/processors")
     def processors():
         return [processor_info(p) for p in books.PROCESSORS.values()]
@@ -350,12 +375,13 @@ def create_app(settings: Settings, store: JobStore, pool, uploads: UploadStore |
 
     @app.get("/api/voice-sample")
     def voice_sample(model: str | None = None, voice: str | None = None, text: str | None = None,
-                     temperature: float | None = None):
-        spec = spec_from(model, voice, None, temperature, None)
+                     voice_params: str | None = None):
+        """`voice_params` is a JSON object of the model's settings (see /api/params)."""
+        spec = spec_from(model, voice, None, json_object(voice_params), None)
         try:
             current = pool_now()
             current.ensure(spec.model)
-            path = samples.get(current, spec.model, spec.voice, text, spec.temperature)
+            path = samples.get(current, spec.model, spec.voice, text, params.engine_kwargs(spec.params))
         except tts.ModelLoading as exc:
             raise loading(exc)
         except SampleError as exc:
@@ -460,7 +486,7 @@ def create_app(settings: Settings, store: JobStore, pool, uploads: UploadStore |
         selection = sorted({i for i in selection if 0 <= i < len(parsed.sections)})
         if not selection:
             raise HTTPException(422, "select at least one chapter to convert")
-        spec = spec_from(request.model, request.voice, request.dialog_voice, request.temperature, request.read_titles,
+        spec = spec_from(request.model, request.voice, request.dialog_voice, request.voice_params, request.read_titles,
                          parsed.language)
         md5 = md5_of(up)
         sig = spec.signature()[:6]
@@ -503,7 +529,7 @@ def create_app(settings: Settings, store: JobStore, pool, uploads: UploadStore |
         model: str | None = Form(None),
         voice: str | None = Form(None),
         dialog_voice: str | None = Form(None),
-        temperature: float | None = Form(None),
+        voice_params: str | None = Form(None),
         read_titles: str | None = Form(None),
     ):
         """Quick path for scripts: automatic chapter detection, every readable chapter."""
@@ -515,7 +541,7 @@ def create_app(settings: Settings, store: JobStore, pool, uploads: UploadStore |
             with tmp.open("wb") as out:
                 shutil.copyfileobj(file.file, out)
             md5, target = adopt(settings.books, tmp)
-        spec = spec_from(model, voice, dialog_voice, temperature,
+        spec = spec_from(model, voice, dialog_voice, json_object(voice_params),
                          None if read_titles is None else read_titles.lower() in TRUTHY, book_language(target))
         return store.create(target, spec, md5=md5, title=Path(name).stem).public()
 
@@ -531,7 +557,7 @@ def create_app(settings: Settings, store: JobStore, pool, uploads: UploadStore |
             groups.setdefault(entry.voice_sig, []).append(entry)
         return {**library.manifest(md5), "groups": [
             {"voice_sig": sig, "label": items[0].voice_label(), "model": items[0].model, "voice": items[0].voice,
-             "dialog_voice": items[0].dialog_voice, "temperature": items[0].temperature,
+             "dialog_voice": items[0].dialog_voice, "params": items[0].params,
              "seconds": round(sum(a.seconds for a in items)), "bytes": sum(a.bytes for a in items),
              "files": [entry_info(a) for a in items]} for sig, items in groups.items()]}
 

@@ -8,7 +8,8 @@ import httpx
 import numpy as np
 
 from . import catalog
-from .frontend import shared_frontend
+from .frontend import NANO_MAX_CHARS, shared_frontend
+from .params import non_default
 from .tts import MAX_BATCH, SAMPLE_RATES, LaneError, Unreachable
 from .worker import SUPPORTED_PROTOCOLS
 
@@ -160,6 +161,7 @@ class RemoteHandle:
         caps = caps or {"synthesize": True, "clone": True}
         self._text_ok = bool(caps.get("synthesize", True))
         self._batch_ok = bool(caps.get("batch", False))  # an older worker answers one text per request
+        self._params_ok = bool(caps.get("params", False))  # an older worker only takes `temperature`
         self.can_clone = bool(caps.get("clone", True))
 
     def list_preset_voices(self) -> list[tuple[str, str]]:
@@ -170,11 +172,21 @@ class RemoteHandle:
         data = self._b.request("GET", "/voices", params={"model": self._model}).json()
         return [v["id"] for v in data["voices"]]
 
-    def infer(self, text: str, voice: str | None = None, temperature: float = 0.8, **_) -> np.ndarray:
+    def _settings(self, options: dict) -> dict:
+        """The settings in the form this worker takes them."""
+        if self._params_ok:
+            return {"params": options}
+        changed = [k for k, _ in non_default(self._model, tuple(options.items())) if k != "temperature"]
+        if changed:
+            raise WorkerError(f"this voice worker is too old to take the voice settings {', '.join(changed)}; update it, "
+                              "or leave them at their defaults")
+        return {"temperature": options.get("temperature", 0.8)}
+
+    def infer(self, text: str, voice: str | None = None, **options) -> np.ndarray:
         if not self._text_ok:
-            return self._infer_via_phonemes(text, voice)
+            return self._infer_via_phonemes(text, voice, options)
         response = self._b.request("POST", "/synthesize", json={"model": self._model, "text": text, "voice": voice,
-                                                                "temperature": temperature})
+                                                                **self._settings(options)})
         rate = int(response.headers.get("x-sample-rate", 0))
         if rate != SAMPLE_RATES[self._model]:
             raise WorkerError(f"the worker returned {rate} Hz audio, expected {SAMPLE_RATES[self._model]} Hz")
@@ -186,17 +198,17 @@ class RemoteHandle:
             raise WorkerError(f"the worker returned {rate} Hz audio, expected {SAMPLE_RATES[self._model]} Hz")
         return np.frombuffer(response.content, dtype="<i2").astype(np.float32) / 32768.0
 
-    def infer_batch(self, texts: list[str], voice: str | None = None, temperature: float = 0.8, **_) -> list[np.ndarray]:
+    def infer_batch(self, texts: list[str], voice: str | None = None, **options) -> list[np.ndarray]:
         """Several texts, one request per MAX_BATCH of them when the worker can take a batch, else one request each."""
         if not self._text_ok:
-            return [self._infer_via_phonemes(text, voice) for text in texts]
+            return [self._infer_via_phonemes(text, voice, options) for text in texts]
         if not self._batch_ok:
-            return [self.infer(text, voice=voice, temperature=temperature) for text in texts]
+            return [self.infer(text, voice=voice, **options) for text in texts]
         out: list[np.ndarray] = []
         for start in range(0, len(texts), MAX_BATCH):
             part = texts[start:start + MAX_BATCH]
             response = self._b.request("POST", "/synthesize_batch", json={"model": self._model, "texts": part, "voice": voice,
-                                                                         "temperature": temperature})
+                                                                         **self._settings(options)})
             counts = [int(c) for c in response.headers.get("x-sample-counts", "").split(",") if c]
             samples = self._pcm(response)
             if len(counts) != len(part) or sum(counts) != len(samples):
@@ -204,14 +216,16 @@ class RemoteHandle:
             out.extend(np.split(samples, np.cumsum(counts)[:-1]))
         return out
 
-    def _infer_via_phonemes(self, text: str, voice: str | None) -> np.ndarray:
+    def _infer_via_phonemes(self, text: str, voice: str | None, options: dict) -> np.ndarray:
         """This server does the text work (chunks, phonemes, pauses); the worker only runs the networks."""
         frontend = self._b.frontend
-        chunks, gaps = frontend.chunks(text)
+        chunks, gaps = frontend.chunks(text, options.get("max_chars", NANO_MAX_CHARS))
+        networks = {k: v for k, v in options.items() if k in ("steps", "cfg", "sway", "speed", "seed")}
         wavs = []
         for chunk in chunks:
             phonemes = frontend.phonemes(chunk)
-            response = self._b.request("POST", "/infer", json={"model": self._model, "phonemes": phonemes, "voice": voice})
+            response = self._b.request("POST", "/infer",
+                                       json={"model": self._model, "phonemes": phonemes, "voice": voice, **networks})
             wavs.append(self._pcm(response))
         return frontend.join(wavs, SAMPLE_RATES[self._model], gaps)
 

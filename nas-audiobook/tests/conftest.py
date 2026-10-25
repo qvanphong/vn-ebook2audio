@@ -107,26 +107,26 @@ class FakeHandle:
     def voice_ids(self):
         return [vid for _label, vid in self.list_preset_voices()] + list(self.backend.cloned)
 
-    def infer(self, text, voice=None, temperature=0.8, **_):
+    def infer(self, text, voice=None, **options):
         import numpy as np
 
-        self.backend.calls.append((self.model, text, voice, temperature))
+        self.backend.calls.append((self.model, text, voice, options))
         rate = {"turbo": 48000, "english": 44100}.get(self.model, 24000)
         n = int(rate * 0.01 * len(text))
         return (0.4 * np.sin(np.linspace(0, 300 * np.pi, n))).astype(np.float32)
 
-    def infer_batch(self, texts, voice=None, temperature=0.8, **_):
-        self.backend.batch_calls.append((self.model, list(texts), voice, temperature))
-        return [self.infer(text, voice=voice, temperature=temperature) for text in texts]
+    def infer_batch(self, texts, voice=None, **options):
+        self.backend.batch_calls.append((self.model, list(texts), voice, options))
+        return [self.infer(text, voice=voice, **options) for text in texts]
 
-    def infer_phonemes(self, phonemes, voice=None, steps=None, cfg=None, speed=1.0, seed=None):
+    def infer_phonemes(self, phonemes, voice=None, steps=None, cfg=None, sway=0.0, speed=1.0, seed=None):
         import numpy as np
 
         from app.tts import Unsupported
 
         if self.model != "nano":
             raise Unsupported("phoneme input is only implemented for the nano model")
-        self.backend.phoneme_calls.append((self.model, phonemes, voice, steps, cfg, speed, seed))
+        self.backend.phoneme_calls.append((self.model, phonemes, voice, steps, cfg, sway, speed, seed))
         n = int(24000 * 0.01 * len(phonemes))
         return (0.4 * np.sin(np.linspace(0, 300 * np.pi, n))).astype(np.float32)
 

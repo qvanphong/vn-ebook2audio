@@ -15,7 +15,7 @@ from conftest import FakeEngine
 from test_balance import FakeLane, Source
 from test_queue import book, wait_for
 
-SPEC = Voice("nano", None, 0.8, True)
+SPEC = Voice("nano", None, (), True)
 
 
 class Switch:

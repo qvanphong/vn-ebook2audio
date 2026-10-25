@@ -95,6 +95,11 @@ class Settings:
     def pronunciations(self) -> Path:
         return self.data_dir / "config" / "pronunciations.txt"
 
+    @property
+    def param_defaults(self) -> dict[str, float]:
+        """Starting values that differ from a model's own: TTS_TEMPERATURE is the expressiveness Turbo starts at."""
+        return {"temperature": self.temperature}
+
     def defaults_for(self, language: str | None) -> dict:
         """Model and voices a book in this language starts with. An English book gets the English model, whose
         voices are different ones, so the Vietnamese default voice does not carry over."""

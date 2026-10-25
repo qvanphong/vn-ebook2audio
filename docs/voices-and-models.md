@@ -85,7 +85,19 @@ Upload a clean 3 to 15 second clip (any format ffmpeg reads; it is converted to 
 
 ### What makes voice settings "the same"
 
-Two conversions share files only if the model, narrator, dialogue voice, expressiveness and read-titles setting are
-all equal. The file name carries the first six characters of a hash of those five values
-(`Voice.signature()`), and the library groups files by it. The English model ignores expressiveness, so leave it at the
-default to keep one signature.
+Two conversions share files only if the model, narrator, dialogue voice, voice settings and read-titles setting are
+all equal. The file name carries the first six characters of a hash of those values (`Voice.signature()`), and the
+library groups files by it. Only a setting changed from the model's own value counts, so audio made with the defaults
+keeps its signature when a model gains a setting.
+
+### Voice settings of each model
+
+The page shows the settings of the chosen model under **Model**; an empty box means the model's own value. A preset,
+a conversion, a worker and the library's record of each audio file keep every one. They are named as the engines name
+them (`app/params.py` is the table, `GET /api/params` serves it).
+
+| Model | Settings |
+|---|---|
+| Vietnamese · Nano | `speed`, `steps`, `cfg`, `sway`, `seed`, `max_chars` |
+| Vietnamese · Turbo | `speed` (done to the finished audio, since the model has none), `temperature` (expressiveness), `top_k`, `top_p`, `repetition_penalty`, `repetition_window`, `max_new_frames`, `max_chars` |
+| English · Supertonic | `speed`, `total_steps`, `silence_duration`, `max_chunk_length` |

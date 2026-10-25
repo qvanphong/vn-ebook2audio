@@ -30,7 +30,7 @@ equal parts, or automatic). You pick one in the page and see the result before c
 **Voice.** A named speaker of a model. A conversion has a narrator voice and, optionally, a second voice for quoted
 speech. Cloned voices (from a short recording) work with the Vietnamese models.
 
-**Voice settings.** The model, narrator, dialogue voice, expressiveness and "read titles" choice together. Different
+**Voice settings.** The model, narrator, dialogue voice, the model's own settings and "read titles" choice together. Different
 settings never overwrite each other: their files sit side by side in the book's folder, told apart by a 6-character
 signature in the file name.
 

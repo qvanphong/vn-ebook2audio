@@ -5,6 +5,8 @@ import json
 from dataclasses import dataclass
 from enum import StrEnum
 
+from . import params as model_params
+
 
 @dataclass(frozen=True)
 class Clip:
@@ -41,12 +43,18 @@ class Book:
 class Voice:
     model: str
     voice: str | None
-    temperature: float
+    params: model_params.Values
     read_titles: bool
     dialog_voice: str | None = None
 
     def signature(self) -> str:
-        raw = f"{self.model}|{self.voice}|{self.dialog_voice}|{self.temperature}|{int(self.read_titles)}"
+        """Which audio sounds alike. Only settings changed from the model's own count, so a model gaining a setting
+        does not turn every earlier conversion into a different voice. `temperature` keeps its place in the string
+        from before models had settings of their own."""
+        values = dict(self.params)
+        raw = f"{self.model}|{self.voice}|{self.dialog_voice}|{values.get('temperature', 0.8)}|{int(self.read_titles)}"
+        extra = [(k, v) for k, v in model_params.non_default(self.model, self.params) if k != "temperature"]
+        raw += "".join(f"|{k}={v}" for k, v in extra)
         return hashlib.sha1(raw.encode()).hexdigest()[:16]
 
 

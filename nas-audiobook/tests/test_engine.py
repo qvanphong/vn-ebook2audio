@@ -298,7 +298,7 @@ def test_api_changes_the_machines_even_while_a_book_is_rendering(settings, make_
 
     store = JobStore(settings.db)
     c, _ = api(settings)
-    job = store.create(make_epub(), Voice("nano", None, 0.8, True))
+    job = store.create(make_epub(), Voice("nano", None, (), True))
     store.update(job.id, state=State.RUNNING)
     assert c.put("/api/engine", json={"workers": [{"url": "http://x:1"}]}).status_code == 200
 

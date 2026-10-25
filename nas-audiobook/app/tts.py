@@ -9,19 +9,20 @@ import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Mapping, Protocol
 
 import numpy as np
 
 from . import accel, catalog, onnxpaths
 from .model import Voice
+from .params import engine_kwargs, split_speed
+from .stretch import change_speed
 
 log = logging.getLogger("tts")
 
 MODEL_MODES = {"turbo": "v3turbo", "nano": "v3nano", "english": "supertonic"}
 SAMPLE_RATES = {"turbo": 48000, "nano": 24000, "english": 44100}
 NO_CLONE = frozenset({"english"})  # models with a fixed set of voices
-ENGLISH_STEPS = 8
 SMOKE_TEXT = {"nano": "Xin chào.", "turbo": "Xin chào.", "english": "Hello."}  # a first run that proves a model works
 REFERENCE_SECONDS = 15
 PRECISIONS = ("fp32", "int8")
@@ -139,12 +140,12 @@ class LocalHandle:
         """Every voice this model can speak right now, cloned ones included."""
         return [vid for _label, vid in self._tts.list_preset_voices()]
 
-    def infer(self, text, voice=None, temperature=0.8, **kwargs):
-        return self._tts.infer(text, voice=voice, temperature=temperature, **kwargs)
+    def infer(self, text, voice=None, **options):
+        return self._tts.infer(text, voice=voice, **options)
 
-    def infer_batch(self, texts, voice=None, temperature=0.8, **kwargs):
+    def infer_batch(self, texts, voice=None, **options):
         """VieNeu batches the texts on a GPU (PyTorch); on the CPU it runs them one after another."""
-        return self._tts.infer_batch(texts, voice=voice, temperature=temperature, **kwargs)
+        return self._tts.infer_batch(texts, voice=voice, **options)
 
     def add_voice(self, name, ref_audio):
         return self._tts.add_voice(name, ref_audio)
@@ -152,14 +153,14 @@ class LocalHandle:
     def remove_voice(self, name):
         return self._tts.remove_voice(name)
 
-    def infer_phonemes(self, phonemes, voice=None, steps=None, cfg=None, speed=1.0, seed=None):
+    def infer_phonemes(self, phonemes, voice=None, steps=None, cfg=None, sway=0.0, speed=1.0, seed=None):
         """One already-phonemised chunk, the way the Nano engine runs it (see docs/phone-worker.md)."""
         if self.model != "nano":
             raise Unsupported("phoneme input is only implemented for the nano model")
         speaker, style = self._tts._resolve_voice(voice, None)
         return self._tts.engine.infer(
             phonemes, speaker, style, steps=steps or self._tts.default_steps,
-            cfg=self._tts.default_cfg if cfg is None else cfg, sway=0.0, speed=speed, seed=seed)
+            cfg=self._tts.default_cfg if cfg is None else cfg, sway=sway, speed=speed, seed=seed)
 
 
 class SupertonicHandle:
@@ -177,17 +178,15 @@ class SupertonicHandle:
     def list_preset_voices(self):
         return [(f"{v} — {'Female' if v.startswith('F') else 'Male'}", v) for v in self.voice_ids()]
 
-    def infer(self, text, voice=None, temperature=0.8, **_):
-        """`temperature` belongs to the Vietnamese models and is ignored here."""
+    def infer(self, text, voice=None, **options):
         name = voice or self.DEFAULT_VOICE
         if name not in self.voice_ids():
             raise ValueError(f"the English model has no voice {name!r}; it has {', '.join(self.voice_ids())}")
-        wav, _duration = self._tts.synthesize(text, voice_style=self._tts.get_voice_style(name),
-                                              total_steps=ENGLISH_STEPS, lang="en")
+        wav, _duration = self._tts.synthesize(text, voice_style=self._tts.get_voice_style(name), lang="en", **options)
         return np.asarray(wav, dtype=np.float32).reshape(-1)
 
-    def infer_batch(self, texts, voice=None, temperature=0.8, **_):
-        return [self.infer(text, voice=voice, temperature=temperature) for text in texts]
+    def infer_batch(self, texts, voice=None, **options):
+        return [self.infer(text, voice=voice, **options) for text in texts]
 
     def add_voice(self, name, ref_audio):
         raise Unsupported("the English model cannot clone voices")
@@ -467,19 +466,22 @@ class ModelPool:
                 tts.remove_voice(name)
             return removed
 
-    def synthesize(self, model: str, text: str, voice: str | None, temperature: float) -> np.ndarray:
+    def synthesize(self, model: str, text: str, voice: str | None, options: Mapping[str, float | int]) -> np.ndarray:
         """One synthesis call. Jobs and voice samples share each model, so calls take turns."""
         tts = self.get(model)
+        options, speed = split_speed(model, options)
         with self._infer_locks[model]:
-            audio = tts.infer(text, voice=voice, temperature=temperature)
-        return np.asarray(audio, dtype=np.float32).reshape(-1)
+            audio = tts.infer(text, voice=voice, **options)
+        return change_speed(np.asarray(audio, dtype=np.float32).reshape(-1), SAMPLE_RATES[model], speed)
 
-    def synthesize_many(self, model: str, texts: list[str], voice: str | None, temperature: float) -> list[np.ndarray]:
+    def synthesize_many(self, model: str, texts: list[str], voice: str | None,
+                        options: Mapping[str, float | int]) -> list[np.ndarray]:
         """Several texts in one call, one waveform each, in order."""
         tts = self.get(model)
+        options, speed = split_speed(model, options)
         with self._infer_locks[model]:
-            audios = tts.infer_batch(texts, voice=voice, temperature=temperature)
-        return [np.asarray(audio, dtype=np.float32).reshape(-1) for audio in audios]
+            audios = tts.infer_batch(texts, voice=voice, **options)
+        return [change_speed(np.asarray(audio, dtype=np.float32).reshape(-1), SAMPLE_RATES[model], speed) for audio in audios]
 
     def infer_phonemes(self, model: str, phonemes: str, voice: str | None, **options) -> np.ndarray:
         """One chunk of phonemes to audio, for callers that do the text work themselves."""
@@ -505,7 +507,7 @@ class VieneuEngine:
         return self._voice.dialog_voice if dialog and self._voice.dialog_voice else self._voice.voice
 
     def synthesize(self, text: str, dialog: bool = False) -> np.ndarray:
-        return self._pool.synthesize(self._voice.model, text, self._voice_named(dialog), self._voice.temperature)
+        return self._pool.synthesize(self._voice.model, text, self._voice_named(dialog), engine_kwargs(self._voice.params))
 
     def synthesize_many(self, texts: list[str], dialog: bool = False) -> list[np.ndarray]:
-        return self._pool.synthesize_many(self._voice.model, texts, self._voice_named(dialog), self._voice.temperature)
+        return self._pool.synthesize_many(self._voice.model, texts, self._voice_named(dialog), engine_kwargs(self._voice.params))

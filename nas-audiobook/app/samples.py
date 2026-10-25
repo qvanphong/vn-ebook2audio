@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import subprocess
 from pathlib import Path
+from typing import Mapping
 
 import numpy as np
 
@@ -42,18 +43,18 @@ class SampleStore:
         self.dir = directory
         self.dir.mkdir(parents=True, exist_ok=True)
 
-    def path_for(self, model: str, voice: str | None, text: str, temperature: float) -> Path:
-        key = hashlib.sha1(f"{model}|{voice}|{temperature}|{text}".encode()).hexdigest()[:20]
+    def path_for(self, model: str, voice: str | None, text: str, options: Mapping[str, float | int]) -> Path:
+        key = hashlib.sha1(f"{model}|{voice}|{sorted(options.items())}|{text}".encode()).hexdigest()[:20]
         return self.dir / f"{key}.mp3"
 
-    def get(self, pool, model: str, voice: str | None, text: str | None, temperature: float) -> Path:
+    def get(self, pool, model: str, voice: str | None, text: str | None, options: Mapping[str, float | int]) -> Path:
         text = (text or default_text(model)).strip()
         if not text:
             raise SampleError("the sample text is empty")
         if len(text) > MAX_TEXT_CHARS:
             raise SampleError(f"the sample text is longer than {MAX_TEXT_CHARS} characters")
-        path = self.path_for(model, voice, text, temperature)
+        path = self.path_for(model, voice, text, options)
         if not path.exists():
-            audio = pool.synthesize(model, text, voice, temperature)
+            audio = pool.synthesize(model, text, voice, options)
             encode_mp3(audio, SAMPLE_RATES[model], path)
         return path

@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from app.api import create_app
 from app.jobs import Runner
+from app import params
 from app.model import State
 from app.tts import CloneError, ModelLoading, VoiceList
 from app.watcher import scan_inbox
@@ -17,10 +18,10 @@ class FakePool:
         if self.loading:
             raise ModelLoading(model, None if self.loading == "wait" else self.loading)
 
-    def synthesize(self, model, text, voice, temperature):
+    def synthesize(self, model, text, voice, options):
         import numpy as np
 
-        self.synth_calls.append((model, text, voice, temperature))
+        self.synth_calls.append((model, text, voice, options))
         return (0.2 * np.sin(np.linspace(0, 200 * np.pi, 24000))).astype(np.float32)
 
     loading: str | None = None
@@ -106,8 +107,8 @@ def test_inbox_scan_waits_for_file_to_settle(settings, store, make_epub):
 def test_omitted_form_fields_fall_back_to_server_defaults(settings, store):
     c = client(settings, store)
     job = c.post("/api/jobs", files={"file": ("x.txt", "Xin chào, đây là một câu tiếng Việt.".encode())}).json()
-    assert (job["model"], job["voice"], job["temperature"], job["read_titles"]) == (
-        settings.model, settings.voice, settings.temperature, settings.read_titles)
+    assert (job["model"], job["voice"], job["params"], job["read_titles"]) == (
+        settings.model, settings.voice, dict(params.resolve(settings.model)), settings.read_titles)
     off = c.post("/api/jobs", files={"file": ("y.txt", b"x")}, data={"read_titles": "false"}).json()
     assert off["read_titles"] is False
 

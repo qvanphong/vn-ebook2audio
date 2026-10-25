@@ -11,8 +11,8 @@ from app.library import Library, md5_file
 from app.model import Plan, State, Voice
 from conftest import FakeEngine
 
-SPEC = Voice("nano", None, 0.8, True)
-DIALOG_SPEC = Voice("nano", None, 0.8, True, "Mỹ Duyên")
+SPEC = Voice("nano", None, (), True)
+DIALOG_SPEC = Voice("nano", None, (), True, "Mỹ Duyên")
 
 
 def probe(path, entries="format_tags"):
@@ -114,7 +114,7 @@ def test_a_different_voice_adds_files_next_to_the_existing_ones(settings, store,
     md5 = md5_file(book)
     store.create(book, SPEC)
     runner(settings, store, FakeEngine()).run_one(store.claim_next())
-    store.create(book, Voice("nano", "Mỹ Duyên", 0.8, True))
+    store.create(book, Voice("nano", "Mỹ Duyên", (), True))
     runner(settings, store, FakeEngine()).run_one(store.claim_next())
     entries = Library(settings.library).entries(md5)
     assert len(entries) == 4 and len({e.voice_sig for e in entries}) == 2 and len(m4a_files(settings, md5)) == 4

@@ -43,19 +43,20 @@ def test_health_reports_what_the_worker_can_do(tmp_path):
     both, _ = phone_worker(tmp_path, "both")
     phone, _ = phone_worker(tmp_path, "phonemes")
     assert both.get("/health", headers=auth()).json()["capabilities"] == {"synthesize": True, "infer": ["nano"], "clone": True,
-                                                                          "batch": True}
+                                                                          "batch": True, "params": True}
     h = phone.get("/health", headers=auth()).json()
     assert h["protocol"] == PROTOCOL == 4
-    assert h["capabilities"] == {"synthesize": False, "infer": ["nano"], "clone": False, "batch": False}
+    assert h["capabilities"] == {"synthesize": False, "infer": ["nano"], "clone": False, "batch": False,
+                                "params": False}
 
 
 def test_infer_returns_one_chunk_of_pcm_and_passes_the_options_through(tmp_path):
     c, backend = phone_worker(tmp_path)
     r = c.post("/infer", json={"model": "nano", "phonemes": "xin tʃaː", "voice": "Mỹ Duyên", "steps": 8, "cfg": 2.0,
-                               "speed": 1.1, "seed": 5}, headers=auth())
+                               "sway": 0.2, "speed": 1.1, "seed": 5}, headers=auth())
     assert r.status_code == 200 and r.headers["x-sample-rate"] == "24000"
     assert len(r.content) == 2 * int(24000 * 0.01 * len("xin tʃaː"))
-    assert backend.phoneme_calls == [("nano", "xin tʃaː", "Mỹ Duyên", 8, 2.0, 1.1, 5)]
+    assert backend.phoneme_calls == [("nano", "xin tʃaː", "Mỹ Duyên", 8, 2.0, 0.2, 1.1, 5)]
 
 
 def test_infer_validates_input_and_refuses_models_it_cannot_do(tmp_path):
@@ -77,17 +78,24 @@ def test_a_phone_like_worker_refuses_text_and_cloning(tmp_path):
 def test_nas_does_the_text_work_and_the_phone_only_sees_phonemes(tmp_path):
     c, backend = phone_worker(tmp_path)
     pool = nas_pool(tmp_path, c)
-    audio = pool.synthesize("nano", "abcdefgh", "Mỹ Duyên", 0.8)
+    audio = pool.synthesize("nano", "abcdefgh", "Mỹ Duyên", {})
     assert [call[1] for call in backend.phoneme_calls] == ["PH(abcd)", "PH(efgh)"]
     assert all(call[2] == "Mỹ Duyên" for call in backend.phoneme_calls)
     pause = int(24000 * 0.5)
     assert len(audio) == int(24000 * 0.01 * len("PH(abcd)")) * 2 + pause and not backend.calls
 
 
+def test_the_network_settings_and_the_piece_length_reach_a_phone_like_worker(tmp_path):
+    c, backend = phone_worker(tmp_path)
+    pool = nas_pool(tmp_path, c)
+    pool.synthesize("nano", "abcdefgh", "Mỹ Duyên", {"steps": 12, "cfg": 3.0, "sway": 0.1, "speed": 1.2, "seed": 4, "max_chars": 4})
+    assert [(call[3], call[4], call[5], call[6], call[7]) for call in backend.phoneme_calls] == [(12, 3.0, 0.1, 1.2, 4)] * 2
+
+
 def test_a_whole_book_converts_through_a_phone_like_worker(settings, store, make_epub, tmp_path):
     c, backend = phone_worker(tmp_path)
     pool = nas_pool(tmp_path, c)
-    job = store.create(make_epub(), Voice("nano", "Mỹ Duyên", 0.8, True))
+    job = store.create(make_epub(), Voice("nano", "Mỹ Duyên", (), True))
     Runner(settings, store, pool.factory()).run_one(store.claim_next())
     done = store.get(job.id)
     assert done.state is State.DONE, done.error

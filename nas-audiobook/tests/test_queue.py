@@ -12,7 +12,7 @@ from app.tts import LaneError
 from conftest import FILLER, FakeEngine
 from test_balance import FakeLane, Source
 
-SPEC = Voice("nano", None, 0.8, True)
+SPEC = Voice("nano", None, (), True)
 
 
 def book(make_epub, tag, count):

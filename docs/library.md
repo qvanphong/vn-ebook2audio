@@ -35,7 +35,7 @@ Consequences worth knowing:
 - `NNNN` is the chapter's position in the split of the whole book, plus one, in four digits. It is the position in
   the book, not in your selection: converting only chapter 5 produces `0005-….m4a`.
 - `<text>` is the first 8 characters of the chapter's text hash (title plus text).
-- `<voice>` is the first 6 characters of the voice-settings hash (model, narrator, dialogue voice, expressiveness,
+- `<voice>` is the first 6 characters of the voice-settings hash (model, narrator, dialogue voice, the settings changed from the model's own,
   read titles).
 
 So files for different voice settings sit side by side and never overwrite each other, and re-converting a chapter in
@@ -68,7 +68,7 @@ library.
     {
       "file": "0003-4e121793-e30098.m4a", "index": 2, "title": "Chương II",
       "text_hash": "4e121793…", "chars": 30300, "seconds": 731.738, "bytes": 5899324,
-      "model": "nano", "voice": null, "dialog_voice": null, "temperature": 0.8, "read_titles": true,
+      "model": "nano", "voice": null, "dialog_voice": null, "params": {"speed": 1.0, "steps": null, "cfg": null, "sway": 0.0, "seed": null, "max_chars": 140}, "read_titles": true,
       "voice_sig": "e30098", "processor": "auto", "created": 1792691900.1
     }
   ]

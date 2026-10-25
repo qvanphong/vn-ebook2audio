@@ -156,10 +156,10 @@ def test_preparing_says_whether_it_will_download_or_only_load():
     messages = []
     backend = Downloading()
     backend.release.set()
-    ModelPool(backend).prepare(Voice("english", None, 0.8, True), messages.append)
+    ModelPool(backend).prepare(Voice("english", None, (), True), messages.append)
     assert messages[0] == "downloading the English · Supertonic model (about 390 MB), then loading it"
     messages.clear()
-    ModelPool(Downloading(have=True)).prepare(Voice("nano", None, 0.8, True), messages.append)
+    ModelPool(Downloading(have=True)).prepare(Voice("nano", None, (), True), messages.append)
     assert messages[0] == "loading the Vietnamese · Nano model"
 
 
@@ -338,7 +338,7 @@ def test_a_machine_gets_ready_for_the_voice_and_model_in_the_request_end_to_end(
     c, wpool = worker_with(backend, tmp_path)
     b = remote(c, sleep=lambda _s: (backend.release.set(), time.sleep(0.01)) and None)
     node = Node("w", "Laptop", ModelPool(b, None, tmp_path / "n.json"), WorkerConfig("w", "Laptop", "http://worker"), True)
-    engine = node.engine(Voice("english", "Mỹ Duyên", 0.8, True))
+    engine = node.engine(Voice("english", "Mỹ Duyên", (), True))
     assert wpool.ready("english") and engine.sample_rate == 44100 and len(engine.synthesize("Hello there, reader.")) > 0
     assert backend.calls[-1][:3] == ("english", "Hello there, reader.", "Mỹ Duyên")
 
@@ -432,7 +432,7 @@ def test_a_conversion_shows_the_download_then_starts_and_finishes(settings, stor
                            EngineConfig(False, (WorkerConfig("w", "Laptop", "http://worker", TOKEN),)),
                            lambda w: ModelPool(remote(wc, sleep=sleep), None, tmp_path / "z.json"))
     book = make_epub("dl.epub", [("Chapter 1", ["Hello there, dear reader of this little book.", FILLER])], language="en")
-    job_id = store.create(book, Voice("english", "Mỹ Duyên", 0.8, True)).id
+    job_id = store.create(book, Voice("english", "Mỹ Duyên", (), True)).id
     Runner(settings, store, ctl).run_one(store.claim_next())
     done = store.get(job_id)
     assert done.state is State.DONE, done.error
